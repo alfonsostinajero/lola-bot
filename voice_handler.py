@@ -1,12 +1,11 @@
 """
 voice_handler.py — Manejo de entrada/salida de voz para Lola
 STT: termux-speech-to-text (Android nativo, gratuito, sin instalar nada)
-TTS: Piper TTS (voz natural) con fallback a termux-tts-speak
+TTS: termux-tts-speak con manejo robusto de errores
 """
 
 import logging
 import subprocess
-import tempfile
 import threading
 from typing import Optional
 
@@ -19,9 +18,8 @@ class VoiceHandler:
     """Maneja reconocimiento de voz (STT) y síntesis de voz (TTS)."""
 
     def __init__(self):
-        logger.info(
-            f"VoiceHandler listo. TTS: {'Piper (natural)' if config.USE_PIPER_TTS else 'termux-tts-speak'}"
-        )
+        self._tts_working = None  # None = no probado aún
+        logger.info("VoiceHandler listo.")
 
     # ── STT (Speech-to-Text) ─────────────────────────────────
 
@@ -29,13 +27,11 @@ class VoiceHandler:
         """
         Escucha un comando de voz después del wake word.
         Usa termux-speech-to-text (reconocimiento nativo de Android).
-        Retorna el texto transcrito.
         """
         if timeout == 0:
             timeout = config.LISTEN_TIMEOUT_SEC
 
         if not config.IS_TERMUX:
-            # Modo desarrollo: input de texto
             try:
                 return input("🎤 Comando: ")
             except EOFError:
@@ -68,79 +64,47 @@ class VoiceHandler:
     # ── TTS (Text-to-Speech) ─────────────────────────────────
 
     def speak(self, text: str) -> None:
-        """
-        Sintetiza y reproduce voz.
-        Usa Piper TTS (voz natural) o termux-tts-speak como fallback.
-        """
+        """Sintetiza y reproduce voz usando termux-tts-speak."""
         if not text:
             return
 
         logger.info(f"Hablando: '{text[:80]}...'" if len(text) > 80 else f"Hablando: '{text}'")
 
-        if config.USE_PIPER_TTS:
-            self._speak_piper(text)
-        else:
-            self._speak_termux(text)
+        if not config.IS_TERMUX:
+            logger.info(f"[TTS simulado]: {text}")
+            return
 
-    def _speak_piper(self, text: str) -> None:
-        """
-        Usa Piper TTS para generar voz natural.
-        Piper genera un archivo WAV que luego se reproduce.
-        """
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                wav_path = tmp.name
-
-            # Piper lee de stdin y escribe WAV
-            cmd = [
-                config.PIPER_BINARY,
-                "--model", config.PIPER_MODEL,
-                "--output_file", wav_path,
-            ]
-            proc = subprocess.run(
-                cmd,
-                input=text,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            if proc.returncode != 0:
-                logger.warning(f"Piper falló: {proc.stderr}. Usando fallback.")
-                self._speak_termux(text)
-                return
-
-            # Reproducir el WAV generado
-            if config.IS_TERMUX:
-                subprocess.run(
-                    ["play", wav_path],  # sox play
-                    capture_output=True,
-                    timeout=30,
-                )
-            elif config.IS_WINDOWS:
-                import os
-                os.startfile(wav_path)
-
-        except FileNotFoundError:
-            logger.warning("Piper no encontrado. Usando fallback termux-tts-speak.")
-            self._speak_termux(text)
-        except Exception as e:
-            logger.error(f"Error en Piper TTS: {e}")
-            self._speak_termux(text)
+        self._speak_termux(text)
 
     def _speak_termux(self, text: str) -> None:
-        """Fallback: usa termux-tts-speak (voz del sistema Android)."""
+        """Usa termux-tts-speak con manejo robusto."""
         try:
-            subprocess.run(
-                [config.TTS_COMMAND, "-l", config.TTS_LANG, text],
-                timeout=30,
+            # Cortar texto largo para evitar timeout
+            if len(text) > 200:
+                text = text[:200]
+
+            # Ejecutar en background para no bloquear
+            proc = subprocess.Popen(
+                ["termux-tts-speak", text],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
+
+            # Esperar máximo 15 segundos
+            try:
+                proc.wait(timeout=15)
+                self._tts_working = True
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                logger.warning("TTS timeout - matando proceso")
+                self._tts_working = False
+
         except FileNotFoundError:
-            logger.error(
-                "termux-tts-speak no disponible. Instala Termux:API."
-            )
+            logger.error("termux-tts-speak no disponible. Instala Termux:API.")
+            self._tts_working = False
         except Exception as e:
-            logger.error(f"Error en termux-tts-speak: {e}")
+            logger.error(f"Error en TTS: {e}")
+            self._tts_working = False
 
     def speak_async(self, text: str) -> None:
         """Habla en un hilo aparte (no bloquea el flujo principal)."""
@@ -151,13 +115,19 @@ class VoiceHandler:
         """Reproduce un sonido de activación cuando se detecta el wake word."""
         try:
             if config.IS_TERMUX:
-                subprocess.run(
-                    ["termux-notification", "--sound", "--title", "Lola",
-                     "--content", "Te escucho..."],
-                    timeout=5,
+                # Vibrar + notificación como chime
+                subprocess.Popen(
+                    ["termux-vibrate", "-d", "200"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                subprocess.Popen(
+                    ["termux-toast", "🎤 Te escucho, Ingeniero..."],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
             else:
-                logger.info("🔔 *chime* (simulado en entorno no-Termux)")
+                logger.info("🔔 *chime* (simulado)")
         except Exception as e:
             logger.debug(f"No se pudo reproducir chime: {e}")
 
