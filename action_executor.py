@@ -26,6 +26,9 @@ class ActionExecutor:
             "CALENDARIO": self._calendario,
             "WHATSAPP": self._whatsapp_action,
             "EJECUTAR_CODIGO": self._ejecutar_codigo,
+            "CREAR_ARCHIVO": self._crear_archivo,
+            "CREAR_PROYECTO": self._crear_proyecto,
+            "INSTALAR_PAQUETE": self._instalar_paquete,
             "SISTEMA": self._sistema,
             "RESPONDER": self._responder,
         }
@@ -208,6 +211,109 @@ class ActionExecutor:
             "stdout": result.stdout[:2000], "stderr": result.stderr[:500],
             "returncode": result.returncode,
         }
+
+    def _crear_archivo(self, params: Dict[str, Any]) -> Dict:
+        """Crea o modifica un archivo con contenido específico."""
+        import os
+
+        ruta = params.get("ruta", "")
+        contenido = params.get("contenido", "")
+
+        if not ruta:
+            raise ValueError("Se requiere 'ruta' para crear archivo.")
+
+        # Expandir ~ a home
+        ruta = os.path.expanduser(ruta)
+
+        # Crear directorio padre si no existe
+        directorio = os.path.dirname(ruta)
+        if directorio:
+            os.makedirs(directorio, exist_ok=True)
+
+        # Escribir archivo
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(contenido)
+
+        # Hacer ejecutable si es script
+        if ruta.endswith((".sh", ".py")):
+            os.chmod(ruta, 0o755)
+
+        logger.info(f"Archivo creado: {ruta} ({len(contenido)} bytes)")
+        return {"accion": "crear_archivo", "ruta": ruta, "bytes": len(contenido)}
+
+    def _crear_proyecto(self, params: Dict[str, Any]) -> Dict:
+        """Crea una estructura de proyecto completa con carpetas y archivos."""
+        import os
+
+        nombre = params.get("nombre", "proyecto")
+        ruta_base = os.path.expanduser(params.get("ruta_base", "~/proyectos"))
+        estructura = params.get("estructura", {})
+
+        ruta_proyecto = os.path.join(ruta_base, nombre)
+        os.makedirs(ruta_proyecto, exist_ok=True)
+
+        archivos_creados = []
+
+        # Crear carpetas
+        for carpeta in estructura.get("carpetas", []):
+            ruta_carpeta = os.path.join(ruta_proyecto, carpeta)
+            os.makedirs(ruta_carpeta, exist_ok=True)
+
+        # Crear archivos
+        for archivo in estructura.get("archivos", []):
+            ruta_archivo = os.path.join(ruta_proyecto, archivo.get("ruta", ""))
+            contenido = archivo.get("contenido", "")
+
+            directorio = os.path.dirname(ruta_archivo)
+            if directorio:
+                os.makedirs(directorio, exist_ok=True)
+
+            with open(ruta_archivo, "w", encoding="utf-8") as f:
+                f.write(contenido)
+
+            archivos_creados.append(ruta_archivo)
+
+        logger.info(f"Proyecto creado: {ruta_proyecto} ({len(archivos_creados)} archivos)")
+        return {
+            "accion": "crear_proyecto",
+            "ruta": ruta_proyecto,
+            "archivos_creados": archivos_creados,
+        }
+
+    def _instalar_paquete(self, params: Dict[str, Any]) -> Dict:
+        """Instala paquetes de Python (pip) o del sistema (pkg)."""
+        resultados = []
+
+        # Instalar paquetes pip
+        pip_packages = params.get("pip", [])
+        if pip_packages:
+            cmd = f"pip install {' '.join(pip_packages)}"
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=120,
+            )
+            resultados.append({
+                "tipo": "pip",
+                "paquetes": pip_packages,
+                "success": result.returncode == 0,
+                "output": result.stdout[-500:] if result.stdout else result.stderr[-500:],
+            })
+
+        # Instalar paquetes del sistema (Termux)
+        pkg_packages = params.get("pkg", [])
+        if pkg_packages and config.IS_TERMUX:
+            cmd = f"pkg install -y {' '.join(pkg_packages)}"
+            result = subprocess.run(
+                cmd, shell=True, capture_output=True, text=True, timeout=120,
+            )
+            resultados.append({
+                "tipo": "pkg",
+                "paquetes": pkg_packages,
+                "success": result.returncode == 0,
+                "output": result.stdout[-500:] if result.stdout else result.stderr[-500:],
+            })
+
+        logger.info(f"Paquetes instalados: pip={pip_packages}, pkg={pkg_packages}")
+        return {"accion": "instalar_paquete", "resultados": resultados}
 
     def _responder(self, params: Dict[str, Any]) -> Dict:
         """Simplemente retorna el mensaje para TTS (no ejecuta nada)."""
