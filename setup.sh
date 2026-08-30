@@ -147,14 +147,16 @@ if [ ! -f "$PIPER_DIR/piper" ]; then
     rm piper.tar.gz
 
     # Mover binario si está en subdirectorio
+    # Renombrar carpeta primero para evitar conflicto de nombres
     if [ -d "piper" ] && [ -f "piper/piper" ]; then
-        cp -f piper/piper . 2>/dev/null || true
-        cp -f piper/*.so* . 2>/dev/null || true
-        cp -rf piper/espeak-ng-data . 2>/dev/null || true
-        rm -rf piper 2>/dev/null || true
+        mv piper piper_tmp
+        mv piper_tmp/piper .
+        cp -f piper_tmp/*.so* . 2>/dev/null || true
+        cp -rf piper_tmp/espeak-ng-data . 2>/dev/null || true
+        rm -rf piper_tmp
     fi
 
-    chmod +x piper
+    chmod +x piper || true
     cd ~
     print_ok "Piper TTS instalado"
 else
