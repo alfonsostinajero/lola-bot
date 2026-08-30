@@ -148,8 +148,10 @@ if [ ! -f "$PIPER_DIR/piper" ]; then
 
     # Mover binario si está en subdirectorio
     if [ -d "piper" ] && [ -f "piper/piper" ]; then
-        mv piper/* .
-        rmdir piper 2>/dev/null || true
+        cp -f piper/piper . 2>/dev/null || true
+        cp -f piper/*.so* . 2>/dev/null || true
+        cp -rf piper/espeak-ng-data . 2>/dev/null || true
+        rm -rf piper 2>/dev/null || true
     fi
 
     chmod +x piper
