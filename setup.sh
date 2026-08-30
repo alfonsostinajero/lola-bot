@@ -81,36 +81,23 @@ fi
 print_step 5 "Instalando dependencias Python (pip)..."
 pip install --upgrade pip setuptools wheel
 pip install \
-    vosk \
-    pyaudio \
     requests \
     python-dateutil \
     google-auth \
     google-auth-oauthlib \
     google-api-python-client
 print_ok "Dependencias Python instaladas"
-
-# pvporcupine es opcional (requiere API key gratuita)
-pip install pvporcupine 2>/dev/null && print_ok "Porcupine instalado (opcional)" || print_warn "Porcupine no disponible (usaremos Vosk como wake word)"
+print_ok "STT/TTS: Usamos termux-speech-to-text y termux-tts-speak (ya incluidos en Termux:API)"
 
 # ── PASO 6: Crear estructura de directorios ──────────────────
 print_step 6 "Creando estructura de directorios..."
 mkdir -p ~/.lola/{backups,logs,data,models,piper}
 print_ok "Directorios creados en ~/.lola/"
 
-# ── PASO 7: Descargar modelo Vosk (español) ──────────────────
-print_step 7 "Descargando modelo de voz Vosk (español)..."
-VOSK_DIR="$HOME/.lola/models/vosk-model-small-es-0.42"
-if [ ! -d "$VOSK_DIR" ]; then
-    cd ~/.lola/models
-    wget -q --show-progress https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
-    unzip -q vosk-model-small-es-0.42.zip
-    rm vosk-model-small-es-0.42.zip
-    cd ~
-    print_ok "Modelo Vosk español descargado (45MB)"
-else
-    print_ok "Modelo Vosk ya existe"
-fi
+# ── PASO 7: Reconocimiento de voz ─────────────────────────────
+print_step 7 "Configurando reconocimiento de voz..."
+print_ok "Usando termux-speech-to-text (reconocimiento nativo de Android)"
+print_ok "No se necesita descargar modelos de voz — Android ya lo tiene"
 
 # ── PASO 8: Instalar Piper TTS (voz natural GRATIS) ─────────
 print_step 8 "Instalando Piper TTS (voz natural, gratuita)..."
