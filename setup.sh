@@ -4,7 +4,7 @@
 # Motorola Edge 20 (Snapdragon 778G) — TODO GRATUITO
 # ══════════════════════════════════════════════════════════════
 
-set -e
+# set -e  # Desactivado: errores no-fatales no deben detener la instalación
 
 # Colores
 RED='\033[0;31m'
@@ -130,9 +130,16 @@ print_ok "No se necesita descargar modelos de voz — Android ya lo tiene"
 
 # ── PASO 8: Instalar Piper TTS (voz natural GRATIS) ─────────
 print_step 8 "Instalando Piper TTS (voz natural, gratuita)..."
-PIPER_DIR="$HOME/.lola/piper"
-if [ ! -f "$PIPER_DIR/piper" ]; then
-    cd ~/.lola/piper
+print_warn "Piper es OPCIONAL — si falla, Lola usará termux-tts-speak"
+
+# Ejecutar en subshell para que errores NO detengan el script
+(
+    PIPER_DIR="$HOME/.lola/piper"
+
+    # Limpiar instalación previa rota
+    rm -rf "$PIPER_DIR"
+    mkdir -p "$PIPER_DIR"
+    cd "$PIPER_DIR"
 
     # Detectar arquitectura ARM
     ARCH=$(uname -m)
@@ -142,38 +149,36 @@ if [ ! -f "$PIPER_DIR/piper" ]; then
     PIPER_VERSION="2023.11.14-2"
     PIPER_URL="https://github.com/rhasspy/piper/releases/download/${PIPER_VERSION}/piper_linux_aarch64.tar.gz"
 
-    wget -q --show-progress "$PIPER_URL" -O piper.tar.gz
-    tar xzf piper.tar.gz
-    rm piper.tar.gz
+    echo "  Descargando Piper TTS..."
+    wget -q --show-progress "$PIPER_URL" -O piper.tar.gz || exit 1
+    tar xzf piper.tar.gz || exit 1
+    rm -f piper.tar.gz
 
     # Mover binario si está en subdirectorio
-    # Renombrar carpeta primero para evitar conflicto de nombres
     if [ -d "piper" ] && [ -f "piper/piper" ]; then
         mv piper piper_tmp
         mv piper_tmp/piper .
-        cp -f piper_tmp/*.so* . 2>/dev/null || true
-        cp -rf piper_tmp/espeak-ng-data . 2>/dev/null || true
+        cp -f piper_tmp/*.so* . 2>/dev/null
+        cp -rf piper_tmp/espeak-ng-data . 2>/dev/null
         rm -rf piper_tmp
     fi
 
-    chmod +x piper || true
-    cd ~
-    print_ok "Piper TTS instalado"
-else
-    print_ok "Piper TTS ya existe"
-fi
+    chmod +x piper 2>/dev/null
+    echo "  Piper TTS instalado correctamente"
+) || print_warn "Piper TTS falló — Lola usará termux-tts-speak (funciona igual)"
 
-# Descargar voz en español (México) — GRATUITA
+# Descargar voz en español (México) — GRATUITA (también opcional)
 VOICE_DIR="$HOME/.lola/models"
 if [ ! -f "$VOICE_DIR/es_MX-claude-high.onnx" ]; then
     echo "  Descargando voz natural en español (México)..."
-    cd $VOICE_DIR
-    wget -q --show-progress \
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx"
-    wget -q --show-progress \
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx.json"
-    cd ~
-    print_ok "Voz natural en español descargada"
+    (
+        cd "$VOICE_DIR"
+        wget -q --show-progress \
+            "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx" || exit 1
+        wget -q --show-progress \
+            "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_MX/claude/high/es_MX-claude-high.onnx.json" || exit 1
+        echo "  Voz natural en español descargada"
+    ) || print_warn "Descarga de voz falló — se puede descargar después"
 else
     print_ok "Voz natural ya existe"
 fi
