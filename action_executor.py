@@ -29,6 +29,10 @@ class ActionExecutor:
             "CREAR_ARCHIVO": self._crear_archivo,
             "CREAR_PROYECTO": self._crear_proyecto,
             "INSTALAR_PAQUETE": self._instalar_paquete,
+            "YOUTUBE": self._youtube,
+            "TELEFONO": self._telefono,
+            "CONFIGURACION": self._configuracion,
+            "NOTIFICACION": self._notificacion,
             "SISTEMA": self._sistema,
             "RESPONDER": self._responder,
         }
@@ -314,6 +318,140 @@ class ActionExecutor:
 
         logger.info(f"Paquetes instalados: pip={pip_packages}, pkg={pkg_packages}")
         return {"accion": "instalar_paquete", "resultados": resultados}
+
+    def _youtube(self, params: Dict[str, Any]) -> Dict:
+        """Busca y reproduce videos/música en YouTube."""
+        buscar = params.get("buscar", "")
+        if not buscar:
+            raise ValueError("Se requiere 'buscar' para YouTube.")
+
+        # Abrir YouTube con búsqueda
+        import urllib.parse
+        query = urllib.parse.quote(buscar)
+
+        if config.IS_TERMUX:
+            # Abrir YouTube con la búsqueda directa
+            url = f"https://www.youtube.com/results?search_query={query}"
+            subprocess.run(
+                ["termux-open-url", url],
+                capture_output=True, timeout=10,
+            )
+
+        logger.info(f"YouTube: buscando '{buscar}'")
+        return {"accion": "youtube", "busqueda": buscar}
+
+    def _telefono(self, params: Dict[str, Any]) -> Dict:
+        """Control total del teléfono via Termux:API."""
+        accion = params.get("accion", "").lower()
+        resultado = {}
+
+        if not config.IS_TERMUX:
+            return {"error": "Solo disponible en Termux/Android"}
+
+        comandos = {
+            "bateria": "termux-battery-status",
+            "wifi_on": "termux-wifi-enable true",
+            "wifi_off": "termux-wifi-enable false",
+            "wifi_info": "termux-wifi-connectioninfo",
+            "bluetooth_on": "termux-bluetooth-enable true",
+            "bluetooth_off": "termux-bluetooth-enable false",
+            "vibrar": "termux-vibrate -d 500",
+            "linterna_on": "termux-torch on",
+            "linterna_off": "termux-torch off",
+            "foto": "termux-camera-photo $HOME/.lola/data/foto.jpg",
+            "ubicacion": "termux-location",
+            "info": "termux-telephony-deviceinfo",
+            "contactos": "termux-contact-list",
+            "clipboard": "termux-clipboard-get",
+        }
+
+        if accion == "llamar":
+            numero = params.get("numero", "")
+            if numero:
+                cmd = f"termux-telephony-call {numero}"
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                return {"accion": "llamar", "numero": numero, "estado": "llamando"}
+
+        elif accion == "sms":
+            numero = params.get("numero", "")
+            mensaje = params.get("mensaje", "")
+            if numero and mensaje:
+                cmd = f'termux-sms-send -n {numero} "{mensaje}"'
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                return {"accion": "sms", "numero": numero, "enviado": True}
+
+        elif accion == "brillo":
+            valor = params.get("valor", 150)
+            cmd = f"termux-brightness {valor}"
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
+            return {"accion": "brillo", "valor": valor}
+
+        elif accion == "volumen":
+            valor = params.get("valor", 7)
+            cmd = f"termux-volume music {valor}"
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
+            return {"accion": "volumen", "valor": valor}
+
+        elif accion in comandos:
+            result = subprocess.run(
+                comandos[accion], shell=True, capture_output=True, text=True, timeout=15,
+            )
+            try:
+                import json as _json
+                resultado = _json.loads(result.stdout)
+            except Exception:
+                resultado = {"output": result.stdout[:500]}
+            return {"accion": accion, "data": resultado}
+
+        else:
+            raise ValueError(f"Acción de teléfono no reconocida: {accion}")
+
+        return resultado
+
+    def _configuracion(self, params: Dict[str, Any]) -> Dict:
+        """Abre secciones de configuración del teléfono."""
+        seccion = params.get("seccion", "general").lower()
+
+        if not config.IS_TERMUX:
+            return {"error": "Solo disponible en Termux/Android"}
+
+        # Mapeo de secciones a intents de Android
+        intents = {
+            "wifi": "android.settings.WIFI_SETTINGS",
+            "bluetooth": "android.settings.BLUETOOTH_SETTINGS",
+            "pantalla": "android.settings.DISPLAY_SETTINGS",
+            "sonido": "android.settings.SOUND_SETTINGS",
+            "apps": "android.settings.APPLICATION_SETTINGS",
+            "bateria": "android.settings.BATTERY_SAVER_SETTINGS",
+            "almacenamiento": "android.settings.INTERNAL_STORAGE_SETTINGS",
+            "seguridad": "android.settings.SECURITY_SETTINGS",
+            "ubicacion": "android.settings.LOCATION_SOURCE_SETTINGS",
+            "accesibilidad": "android.settings.ACCESSIBILITY_SETTINGS",
+            "fecha": "android.settings.DATE_SETTINGS",
+            "idioma": "android.settings.LOCALE_SETTINGS",
+            "desarrollo": "android.settings.APPLICATION_DEVELOPMENT_SETTINGS",
+            "general": "android.settings.SETTINGS",
+        }
+
+        intent = intents.get(seccion, "android.settings.SETTINGS")
+        cmd = f"am start -a {intent}"
+        subprocess.run(["sh", "-c", cmd], capture_output=True, timeout=10)
+
+        logger.info(f"Configuración abierta: {seccion}")
+        return {"accion": "configuracion", "seccion": seccion}
+
+    def _notificacion(self, params: Dict[str, Any]) -> Dict:
+        """Crea notificaciones en Android."""
+        titulo = params.get("titulo", "Lola")
+        mensaje = params.get("mensaje", "")
+        notif_id = params.get("id", "lola_notif")
+
+        if config.IS_TERMUX:
+            cmd = f'termux-notification --title "{titulo}" --content "{mensaje}" --id {notif_id}'
+            subprocess.run(cmd, shell=True, capture_output=True, timeout=10)
+
+        logger.info(f"Notificación: {titulo} - {mensaje}")
+        return {"accion": "notificacion", "titulo": titulo, "mensaje": mensaje}
 
     def _responder(self, params: Dict[str, Any]) -> Dict:
         """Simplemente retorna el mensaje para TTS (no ejecuta nada)."""
