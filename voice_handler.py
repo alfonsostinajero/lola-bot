@@ -1,20 +1,14 @@
 """
 voice_handler.py — Manejo de entrada/salida de voz para Lola
-STT: Vosk (offline, gratuito)
-TTS: Piper TTS (voz natural, gratuita) con fallback a termux-tts-speak
+STT: termux-speech-to-text (Android nativo, gratuito, sin instalar nada)
+TTS: Piper TTS (voz natural) con fallback a termux-tts-speak
 """
 
-import json
-import math
-import struct
 import logging
 import subprocess
 import tempfile
 import threading
-import time
 from typing import Optional
-
-import pyaudio
 
 import config
 
@@ -25,93 +19,51 @@ class VoiceHandler:
     """Maneja reconocimiento de voz (STT) y síntesis de voz (TTS)."""
 
     def __init__(self):
-        self._pa = pyaudio.PyAudio()
-        self._vosk_model = None
-        self._recognizer = None
-        self._init_stt()
         logger.info(
             f"VoiceHandler listo. TTS: {'Piper (natural)' if config.USE_PIPER_TTS else 'termux-tts-speak'}"
         )
 
     # ── STT (Speech-to-Text) ─────────────────────────────────
 
-    def _init_stt(self) -> None:
-        """Inicializa el modelo Vosk para transcripción."""
-        try:
-            from vosk import Model, KaldiRecognizer
-            self._vosk_model = Model(config.VOSK_MODEL_PATH)
-            self._recognizer = KaldiRecognizer(self._vosk_model, config.AUDIO_RATE)
-            logger.info("Modelo Vosk cargado para STT.")
-        except Exception as e:
-            logger.error(f"Error cargando Vosk STT: {e}")
-
-    def _rms(self, frame: bytes) -> float:
-        """Calcula el nivel RMS del audio para detectar silencio."""
-        count = len(frame) // 2
-        if count == 0:
-            return 0.0
-        shorts = struct.unpack(f"{count}h", frame)
-        return math.sqrt(sum(s ** 2 for s in shorts) / count)
-
     def listen_command(self, timeout: int = 0) -> str:
         """
         Escucha un comando de voz después del wake word.
+        Usa termux-speech-to-text (reconocimiento nativo de Android).
         Retorna el texto transcrito.
-        Detecta silencio para saber cuándo el usuario terminó de hablar.
         """
         if timeout == 0:
             timeout = config.LISTEN_TIMEOUT_SEC
 
-        if not self._recognizer:
-            logger.error("Vosk no disponible para STT.")
-            return ""
-
-        stream = self._pa.open(
-            rate=config.AUDIO_RATE,
-            channels=config.AUDIO_CHANNELS,
-            format=pyaudio.paInt16,
-            input=True,
-            frames_per_buffer=config.AUDIO_CHUNK,
-        )
+        if not config.IS_TERMUX:
+            # Modo desarrollo: input de texto
+            try:
+                return input("🎤 Comando: ")
+            except EOFError:
+                return ""
 
         logger.info("Escuchando comando...")
-        start_time = time.time()
-        silence_start: Optional[float] = None
-        has_speech = False
-
         try:
-            while True:
-                elapsed = time.time() - start_time
-                if elapsed > timeout:
-                    logger.warning(f"Timeout de escucha ({timeout}s).")
-                    break
+            result = subprocess.run(
+                ["termux-speech-to-text"],
+                capture_output=True,
+                text=True,
+                timeout=timeout + 5,
+            )
 
-                pcm = stream.read(config.AUDIO_CHUNK, exception_on_overflow=False)
-                rms = self._rms(pcm)
+            if result.returncode == 0 and result.stdout.strip():
+                text = result.stdout.strip()
+                logger.info(f"Comando transcrito: '{text}'")
+                return text
+            else:
+                logger.warning("No se detectó voz.")
+                return ""
 
-                if rms >= config.SILENCE_THRESHOLD:
-                    has_speech = True
-                    silence_start = None
-                elif has_speech:
-                    if silence_start is None:
-                        silence_start = time.time()
-                    elif time.time() - silence_start > config.SILENCE_TIMEOUT_SEC:
-                        logger.debug("Silencio detectado, fin del comando.")
-                        break
-
-                self._recognizer.AcceptWaveform(pcm)
-
-            result = json.loads(self._recognizer.FinalResult())
-            text = result.get("text", "").strip()
-            logger.info(f"Comando transcrito: '{text}'")
-            return text
-
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Timeout de escucha ({timeout}s).")
+            return ""
         except Exception as e:
             logger.error(f"Error en listen_command: {e}")
             return ""
-        finally:
-            stream.stop_stream()
-            stream.close()
 
     # ── TTS (Text-to-Speech) ─────────────────────────────────
 
@@ -179,9 +131,8 @@ class VoiceHandler:
     def _speak_termux(self, text: str) -> None:
         """Fallback: usa termux-tts-speak (voz del sistema Android)."""
         try:
-            safe_text = text.replace("'", "'\\''")
             subprocess.run(
-                [config.TTS_COMMAND, "-l", config.TTS_LANG, safe_text],
+                [config.TTS_COMMAND, "-l", config.TTS_LANG, text],
                 timeout=30,
             )
         except FileNotFoundError:
@@ -213,9 +164,7 @@ class VoiceHandler:
     # ── Limpieza ─────────────────────────────────────────────
 
     def cleanup(self) -> None:
-        """Libera recursos de audio."""
-        if self._pa:
-            self._pa.terminate()
+        """Libera recursos."""
         logger.info("VoiceHandler recursos liberados.")
 
     def __del__(self):
