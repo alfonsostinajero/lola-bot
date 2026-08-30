@@ -392,6 +392,16 @@ class ActionExecutor:
             subprocess.run(cmd, shell=True, capture_output=True, timeout=5)
             return {"accion": "volumen", "valor": valor}
 
+        elif accion == "apagar":
+            cmd = "su -c 'reboot -p'" if params.get("root") else "termux-toast 'Apagando...'; svc power shutdown"
+            subprocess.run(["sh", "-c", cmd], capture_output=True, timeout=5)
+            return {"accion": "apagar", "estado": "apagando"}
+
+        elif accion == "reiniciar":
+            cmd = "su -c 'reboot'" if params.get("root") else "termux-toast 'Reiniciando...'; svc power reboot"
+            subprocess.run(["sh", "-c", cmd], capture_output=True, timeout=5)
+            return {"accion": "reiniciar", "estado": "reiniciando"}
+
         elif accion in comandos:
             result = subprocess.run(
                 comandos[accion], shell=True, capture_output=True, text=True, timeout=15,
