@@ -56,7 +56,8 @@ print_step 2 "Instalando paquetes del sistema..."
 pkg install -y \
     python python-pip \
     git cmake make clang \
-    pkg-config libffi openssl \
+    pkg-config libffi openssl openssl-tool \
+    rust binutils \
     sox wget curl jq
 print_ok "Paquetes base instalados"
 
@@ -79,13 +80,41 @@ fi
 
 # ── PASO 5: Instalar dependencias Python ─────────────────────
 print_step 5 "Instalando dependencias Python (pip)..."
+
+# IMPORTANTE: Instalar cryptography desde Termux (precompilado)
+# pip NO puede compilar cryptography en Android porque Rust no soporta
+# el target aarch64-unknown-linux-android
+echo "  Instalando cryptography y dependencias nativas desde Termux..."
+pkg install -y python-cryptography rust binutils 2>/dev/null || true
+
+# Actualizar pip/setuptools
 pip install --upgrade pip setuptools wheel
+
+# Instalar cffi desde Termux si está disponible
+pkg install -y python-cffi 2>/dev/null || true
+
+# Instalar dependencias Python (cryptography ya está instalada vía pkg)
 pip install \
     requests \
     python-dateutil \
+    cachetools \
+    pyasn1-modules \
+    rsa \
     google-auth \
     google-auth-oauthlib \
     google-api-python-client
+
+# Si google-auth falla por cryptography, intentar sin dependencias binarias
+if [ $? -ne 0 ]; then
+    print_warn "Reintentando instalación sin compilar cryptography..."
+    # Forzar que pip use la cryptography ya instalada por pkg
+    CRYPTOGRAPHY_DONT_BUILD_RUST=1 pip install \
+        --no-build-isolation \
+        google-auth \
+        google-auth-oauthlib \
+        google-api-python-client
+fi
+
 print_ok "Dependencias Python instaladas"
 print_ok "STT/TTS: Usamos termux-speech-to-text y termux-tts-speak (ya incluidos en Termux:API)"
 
