@@ -205,7 +205,7 @@ else
     print_ok "llama.cpp ya compilado"
 fi
 
-# Descargar modelo Gemma 4
+## Descargar modelo Gemma 4
 MODEL_PATH="$HOME/.lola/models/gemma-4-e2b-it-Q4_K_M.gguf"
 if [ ! -f "$MODEL_PATH" ]; then
     echo ""
@@ -214,27 +214,29 @@ if [ ! -f "$MODEL_PATH" ]; then
     echo -e "  ${YELLOW}═══════════════════════════════════════════════════════${NC}"
     echo -e "  ${YELLOW}  El modelo pesa ~1.5 GB. Opciones:${NC}"
     echo ""
-    echo -e "  ${CYAN}  Opción 1: Desde la PC y copiar al teléfono${NC}"
-    echo -e "    Descarga desde: https://huggingface.co/google/gemma-4-e2b-it-GGUF"
-    echo -e "    Busca el archivo: gemma-4-e2b-it-Q4_K_M.gguf"
-    echo -e "    Cópialo a: ~/.lola/models/"
+    echo -e "  ${CYAN}  Opción 1: Descarga directa (recomendada)${NC}"
+    echo -e "    Se descarga con wget desde Unsloth (mirror oficial, público, sin cuenta)"
     echo ""
-    echo -e "  ${CYAN}  Opción 2: Directo en Termux${NC}"
-    echo -e "    pip install huggingface-hub"
-    echo -e "    huggingface-cli download google/gemma-4-e2b-it-GGUF \\"
-    echo -e "      gemma-4-e2b-it-Q4_K_M.gguf --local-dir ~/.lola/models/"
+    echo -e "  ${CYAN}  Opción 2: Desde la PC y copiar al teléfono${NC}"
+    echo -e "    Descarga desde: https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF"
+    echo -e "    Busca el archivo: gemma-4-E2B-it-Q4_K_M.gguf"
+    echo -e "    Cópialo a: ~/.lola/models/"
     echo ""
     echo -e "  ${YELLOW}═══════════════════════════════════════════════════════${NC}"
     echo ""
 
-    read -p "  ¿Intentar descarga directa con huggingface-cli? [s/N] " download_choice
-    if [[ "$download_choice" == "s" || "$download_choice" == "S" ]]; then
-        pip install huggingface-hub
-        echo "  Descargando modelo (esto puede tardar 30-60 min)..."
-        huggingface-cli download google/gemma-4-e2b-it-GGUF \
-            gemma-4-e2b-it-Q4_K_M.gguf \
-            --local-dir ~/.lola/models/ || {
-            print_warn "Descarga falló. Descárgalo manualmente."
+    read -p "  ¿Intentar descarga directa? [S/n] " download_choice
+    if [[ "$download_choice" != "n" && "$download_choice" != "N" ]]; then
+        echo "  Descargando modelo Gemma 4 (~1.5 GB, esto puede tardar 30-60 min)..."
+        wget --show-progress -O "$MODEL_PATH" \
+            "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf" || {
+            print_warn "wget falló. Intentando con huggingface-cli..."
+            pip install huggingface-hub --no-deps 2>/dev/null || true
+            pip install click httpx typing-extensions tqdm filelock fsspec packaging pyyaml 2>/dev/null || true
+            hf download unsloth/gemma-4-E2B-it-GGUF gemma-4-E2B-it-Q4_K_M.gguf \
+                --local-dir ~/.lola/models/ || {
+                print_warn "Descarga falló. Descárgalo manualmente."
+            }
         }
     else
         print_warn "Modelo no descargado. Descárgalo manualmente antes de usar Lola."
