@@ -1,0 +1,47 @@
+# Lola AI — .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual env
+venv/
+env/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Datos sensibles (NUNCA subir)
+credentials.json
+token.json
+contacts.json
+*.db
+
+# Datos locales
+*.log
+*.wav
+*.mp3
+
+# Modelos (muy pesados para Git)
+*.gguf
+*.onnx
+*.onnx.json
+*.bin
+vosk-model*/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.bak

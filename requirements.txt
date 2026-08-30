@@ -1,0 +1,25 @@
+# Lola AI — Dependencias Python
+# Todas GRATUITAS y open source
+
+# Reconocimiento de voz (STT) — offline
+vosk>=0.3.45
+
+# Wake word (opcional, requiere API key gratuita)
+pvporcupine>=3.0.0
+
+# Audio
+PyAudio>=0.2.13
+
+# HTTP para llama.cpp
+requests>=2.31.0
+
+# Google Calendar (gratuito con cuenta Google)
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-api-python-client>=2.100.0
+
+# Utilidades
+python-dateutil>=2.8.2
+
+# Descarga de modelos (opcional)
+# huggingface-hub>=0.19.0
