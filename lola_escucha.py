@@ -1,98 +1,48 @@
 #!/usr/bin/env python3
 """
-lola_escucha.py — Micrófono SIEMPRE ACTIVO como Alexa.
-1. Graba audio continuamente con termux-microphone-record
-2. Python analiza si hay voz (energía del audio)
-3. Solo cuando hay voz → Google Speech transcribe
-4. Si dice "Lola" → Gemma 4 procesa → responde por voz
+lola_escucha.py — Lola Voice AI (Fluido como ChatGPT/Siri)
+
+Diseño: SIN wake word. Usted habla → Lola responde → Usted habla.
+Como una conversación natural. Siempre escuchando.
+
+Flujo:
+  1. Google Speech escucha (rápido, preciso)
+  2. Texto va directo a Gemma 4
+  3. Lola responde por voz inmediatamente
+  4. Vuelve a escuchar
 """
 
 import subprocess
-import os
-import sys
-import time
-import struct
-import math
 import json
+import sys
+import os
+import time
+import threading
+import re
+import requests
 
-HOME = os.path.expanduser("~")
-AUDIO_DIR = f"{HOME}/.lola/data/audio"
-RAW_FILE = f"{AUDIO_DIR}/raw.m4a"
-WAV_FILE = f"{AUDIO_DIR}/chunk.wav"
-WAKE_WORD = "lola"
-SILENCE_THRESHOLD = 500  # Ajustar si es muy sensible o poco sensible
+# ── Configuración ──────────────────────────────────────────
 GEMMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
+SYSTEM_PROMPT = """Eres Lola, asistente personal del Ingeniero Alfonso Tinajero.
+Respondes en español, breve y directo (máximo 2 oraciones).
+Llámalo "Ingeniero", "Señor" o "Jefe" de forma variada.
+Siempre de usted, nunca de tú.
+Eres inteligente, cálida y eficiente."""
 
-os.makedirs(AUDIO_DIR, exist_ok=True)
-
-
-def grabar_audio():
-    """Graba 3 segundos con el micrófono real del teléfono."""
-    # Borrar archivos anteriores
-    for f in [RAW_FILE, WAV_FILE]:
-        try:
-            os.remove(f)
-        except FileNotFoundError:
-            pass
-
-    # Grabar
-    subprocess.run(
-        ["termux-microphone-record", "-f", RAW_FILE, "-l", "3"],
-        capture_output=True, timeout=5
-    )
-    time.sleep(3.3)
-    subprocess.run(
-        ["termux-microphone-record", "-q"],
-        capture_output=True, timeout=3
-    )
-    time.sleep(0.2)
+# Historial de conversación para contexto
+historial = [{"role": "system", "content": SYSTEM_PROMPT}]
+MAX_HISTORIAL = 10
 
 
-def convertir_a_wav():
-    """Convierte m4a a WAV con ffmpeg."""
-    if not os.path.exists(RAW_FILE) or os.path.getsize(RAW_FILE) < 100:
-        return False
-    result = subprocess.run(
-        ["ffmpeg", "-y", "-i", RAW_FILE, "-ar", "16000", "-ac", "1",
-         "-acodec", "pcm_s16le", WAV_FILE],
-        capture_output=True, timeout=10
-    )
-    return os.path.exists(WAV_FILE) and os.path.getsize(WAV_FILE) > 100
-
-
-def hay_voz():
-    """Analiza el WAV para detectar si hay voz (energía del audio)."""
+def escuchar():
+    """Escucha con Google Speech. Retorna texto o vacío."""
     try:
-        with open(WAV_FILE, "rb") as f:
-            # Saltar header WAV (44 bytes)
-            header = f.read(44)
-            data = f.read()
-
-        if len(data) < 100:
-            return False
-
-        # Calcular RMS (energía del audio)
-        count = len(data) // 2
-        shorts = struct.unpack(f"<{count}h", data[:count * 2])
-
-        sum_squares = sum(s * s for s in shorts)
-        rms = math.sqrt(sum_squares / count)
-
-        return rms > SILENCE_THRESHOLD
-
-    except Exception:
-        return False
-
-
-def escuchar_comando():
-    """Usa Google Speech para transcribir lo que dice el usuario."""
-    try:
-        result = subprocess.run(
+        r = subprocess.run(
             ["termux-speech-to-text"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=15
         )
-        if result.returncode == 0:
-            return result.stdout.strip()
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
     except subprocess.TimeoutExpired:
         pass
     except Exception:
@@ -100,110 +50,161 @@ def escuchar_comando():
     return ""
 
 
-def procesar_con_gemma(comando):
-    """Envía el comando a Gemma 4 y obtiene respuesta."""
+def pensar(texto):
+    """Envía a Gemma 4 y obtiene respuesta."""
+    global historial
+
+    historial.append({"role": "user", "content": texto})
+
+    # Mantener historial corto
+    if len(historial) > MAX_HISTORIAL:
+        historial = [historial[0]] + historial[-MAX_HISTORIAL:]
+
     try:
-        import requests
-        payload = {"messages": [{"role": "user", "content": comando}]}
-        r = requests.post(GEMMA_URL, json=payload, timeout=30)
+        r = requests.post(GEMMA_URL, json={
+            "messages": historial,
+            "max_tokens": 150,
+            "temperature": 0.7,
+        }, timeout=30)
+
         data = r.json()
-        contenido = data["choices"][0]["message"]["content"]
+        respuesta = data["choices"][0]["message"]["content"]
 
-        # Intentar parsear JSON de Lola
+        # Si Gemma devuelve JSON, extraer respuesta_usuario
         try:
-            j = json.loads(contenido)
-            return j.get("respuesta_usuario", contenido)[:300]
-        except json.JSONDecodeError:
-            return contenido[:300]
+            j = json.loads(respuesta)
+            if "respuesta_usuario" in j:
+                respuesta = j["respuesta_usuario"]
+        except (json.JSONDecodeError, TypeError):
+            pass
 
+        # Limpiar respuesta
+        respuesta = respuesta.strip()
+        if len(respuesta) > 300:
+            respuesta = respuesta[:300]
+
+        historial.append({"role": "assistant", "content": respuesta})
+        return respuesta
+
+    except requests.exceptions.ConnectionError:
+        return "Disculpe Ingeniero, Gemma 4 no está respondiendo."
     except Exception as e:
-        return f"Disculpe Ingeniero, hubo un error: {e}"
+        return f"Error procesando, Ingeniero."
 
 
 def hablar(texto):
-    """Habla usando termux-tts-speak (no bloquea)."""
-    if texto:
-        subprocess.Popen(
-            ["termux-tts-speak", texto[:300]],
+    """Habla con termux-tts-speak. Espera a que termine."""
+    if not texto:
+        return
+    try:
+        proc = subprocess.Popen(
+            ["termux-tts-speak", texto],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def ejecutar_accion(texto):
+    """Detecta acciones especiales y las ejecuta."""
+    t = texto.lower()
+
+    # YouTube
+    if "youtube" in t or "música" in t or "canción" in t:
+        busqueda = re.sub(r'(busca|pon|reproduce|en youtube|música|canción|de)\s*', '', t, flags=re.I).strip()
+        if busqueda:
+            url = f"https://www.youtube.com/results?search_query={busqueda.replace(' ', '+')}"
+            subprocess.Popen(["termux-open-url", url],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return f"Buscando {busqueda} en YouTube, Ingeniero."
+
+    # Batería
+    if "batería" in t or "bateria" in t:
+        try:
+            r = subprocess.run(["termux-battery-status"],
+                               capture_output=True, text=True, timeout=5)
+            info = json.loads(r.stdout)
+            return f"Tiene {info.get('percentage', '?')}% de batería, Ingeniero."
+        except Exception:
+            pass
+
+    # Hora
+    if "hora" in t and ("qué" in t or "que" in t):
+        from datetime import datetime
+        ahora = datetime.now().strftime("%I:%M %p")
+        return f"Son las {ahora}, Ingeniero."
+
+    # Linterna
+    if "linterna" in t or "flash" in t:
+        if "apaga" in t or "apagar" in t:
+            subprocess.run(["termux-torch", "off"], capture_output=True, timeout=3)
+            return "Linterna apagada, Ingeniero."
+        else:
+            subprocess.run(["termux-torch", "on"], capture_output=True, timeout=3)
+            return "Linterna encendida, Ingeniero."
+
+    return None  # No es acción especial, usar Gemma 4
 
 
 def main():
     print("")
-    print("╔══════════════════════════════════════╗")
-    print("║  🤖 LOLA AI ACTIVA                  ║")
-    print("║  🎤 Micrófono SIEMPRE activo         ║")
-    print("║  Solo hable — Lola escucha           ║")
-    print("╚══════════════════════════════════════╝")
+    print("╔══════════════════════════════════════════╗")
+    print("║  🤖 LOLA AI — Conversación Natural       ║")
+    print("║  🎤 Solo hable, Lola siempre escucha     ║")
+    print("║  🗣️  Hable normal, como con una persona  ║")
+    print("║  ❌ Ctrl+C para apagar                   ║")
+    print("╚══════════════════════════════════════════╝")
     print("")
 
+    # Notificación persistente
     subprocess.Popen(
-        ["termux-notification", "--title", "Lola AI Activa",
-         "--content", "Micrófono activo. Diga Lola.",
+        ["termux-notification", "--title", "🤖 Lola AI",
+         "--content", "Hable, Lola escucha siempre",
          "--ongoing", "--id", "lola_active"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
 
-    ciclo = 0
+    # Saludo inicial
+    saludo = "Buenas, Ingeniero. Lola lista. Solo hable."
+    print(f"🤖 {saludo}")
+    hablar(saludo)
+
     while True:
         try:
-            ciclo += 1
+            # ── ESCUCHAR ──
+            print("🎤 ...", end="", flush=True)
+            texto = escuchar()
 
-            # 1. Grabar 3 segundos
-            grabar_audio()
-
-            # 2. Convertir a WAV
-            if not convertir_a_wav():
+            if not texto or len(texto) < 2:
+                print("\r          \r", end="", flush=True)
                 continue
 
-            # 3. ¿Hay voz?
-            if not hay_voz():
-                # Silencio — seguir escuchando (sin mostrar nada)
+            print(f"\r🗣️  Usted: {texto}")
+
+            # ── ACCIÓN RÁPIDA ──
+            accion = ejecutar_accion(texto)
+            if accion:
+                print(f"🤖 Lola: {accion}")
+                hablar(accion)
                 continue
 
-            # 4. ¡Hay voz! Transcribir con Google
-            print("🎤 Voz detectada, escuchando...")
-            texto = escuchar_comando()
+            # ── PENSAR (Gemma 4) ──
+            respuesta = pensar(texto)
+            print(f"🤖 Lola: {respuesta}")
 
-            if not texto:
-                continue
-
-            print(f"🎧 Escuché: '{texto}'")
-
-            # 5. ¿Dijo "Lola"?
-            if WAKE_WORD in texto.lower():
-                print("🎯 ¡LOLA ACTIVADA!")
-                subprocess.Popen(
-                    ["termux-vibrate", "-d", "300"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                )
-
-                # Sacar comando quitando "lola"
-                import re
-                comando = re.sub(r'(?i)lola\s*', '', texto).strip()
-
-                # Si solo dijo "lola", preguntar qué necesita
-                if len(comando) < 3:
-                    hablar("Dígame, Ingeniero")
-                    print("🎤 Escuchando comando...")
-                    comando = escuchar_comando()
-
-                if comando and len(comando) > 2:
-                    print(f"📝 Comando: '{comando}'")
-                    print("🧠 Procesando...")
-
-                    respuesta = procesar_con_gemma(comando)
-                    print(f"🤖 Lola: {respuesta}")
-                    print("")
-                    hablar(respuesta)
+            # ── HABLAR ──
+            hablar(respuesta)
 
         except KeyboardInterrupt:
-            print("\n👋 Lola apagada. ¡Hasta pronto!")
+            print("\n\n👋 Hasta luego, Ingeniero. Lola se apaga.")
+            hablar("Hasta luego, Ingeniero.")
             break
         except Exception as e:
-            print(f"⚠️ Error: {e}")
+            print(f"⚠️  {e}")
             time.sleep(1)
 
 
