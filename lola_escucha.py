@@ -108,7 +108,27 @@ def rapida(texto):
     if re.search(r'(como estas|como vas|como te va|como andas)', t):
         return "Muy bien, Ingeniero. Lista para servirle. ¿En qué le ayudo?"
 
+    # ── GRACIAS ──
+    if re.search(r'(gracias|te lo agradezco|muy amable)', t):
+        return "Con gusto, Ingeniero. Para eso estoy."
 
+    # ── QUIÉN ERES ──
+    if re.search(r'(quién eres|quien eres|cómo te llamas|como te llamas|tu nombre)', t):
+        return "Soy Lola, su asistente personal con inteligencia artificial, Ingeniero."
+
+    # ── QUÉ PUEDES HACER ──
+    if re.search(r'(qué puedes|que puedes|qué sabes|que sabes|qué haces|que haces)', t):
+        return "Puedo controlar su teléfono, contar historias, crear código, buscar en YouTube, y responder cualquier pregunta, Ingeniero."
+
+    # ── SÍ / NO ──
+    if t in ("si", "sí", "ok", "vale", "está bien", "esta bien", "claro", "dale"):
+        return "Perfecto, Ingeniero. ¿Algo más?"
+    if t in ("no", "nada", "nada más", "nada mas", "así está bien", "asi esta bien"):
+        return "Entendido, Ingeniero. Aquí estaré."
+
+    # ── NOMBRE DE LOLA ──
+    if re.search(r'^lola$', t):
+        return "¿Sí, Ingeniero? Dígame."
     # Hora
     if re.search(r'(qué|que|dime).*(hora)', t):
         return f"Son las {datetime.datetime.now().strftime('%I:%M %p')}, Ingeniero."
@@ -238,9 +258,9 @@ def pensar(texto):
     try:
         r = requests.post(URL, json={
             "messages": HISTORIAL,
-            "max_tokens": 200,
-            "temperature": 0.7,
-        }, timeout=60)
+            "max_tokens": 100,
+            "temperature": 0.3,
+        }, timeout=30)
 
         data = r.json()
         resp = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
@@ -429,10 +449,10 @@ def main():
 
                         # Grabar
                         subprocess.Popen(
-                            ["termux-microphone-record", "-f", audio_m4a, "-l", "4"],
+                            ["termux-microphone-record", "-f", audio_m4a, "-l", "3"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                         )
-                        time.sleep(4)
+                        time.sleep(3)
                         subprocess.run(
                             ["termux-microphone-record", "-q"],
                             capture_output=True, timeout=3
