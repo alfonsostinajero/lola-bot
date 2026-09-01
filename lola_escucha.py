@@ -1,113 +1,424 @@
 #!/usr/bin/env python3
 """
-Lola AI — Versión simple que FUNCIONA.
-Escriba su mensaje, Lola responde por texto y voz.
-Escriba 'v' para usar micrófono.
+═══════════════════════════════════════════════════════════════
+  LOLA AI — Asistente Completa del Ingeniero Alfonso Tinajero
+  Motor: Gemma 4 (llama.cpp) | Voz: termux-tts-speak
+  Control total del teléfono | Código | Historias | Todo
+═══════════════════════════════════════════════════════════════
 """
-import subprocess, json, os, sys, datetime, re
+import subprocess, json, os, sys, datetime, re, time
 
 try:
     import requests
-except:
+except ImportError:
     subprocess.run([sys.executable, "-m", "pip", "install", "requests"], capture_output=True)
     import requests
 
+# ══════════════════════════════════════════════════════════════
+# CONFIGURACIÓN
+# ══════════════════════════════════════════════════════════════
 URL = "http://127.0.0.1:8080/v1/chat/completions"
-HISTORIAL = [{"role": "system", "content": f"""Eres Lola, asistente AI del Ingeniero Alfonso Tinajero.
-Fecha: {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}
-Habla español mexicano. Llámalo Ingeniero, Señor o Jefe. Siempre de usted.
-Sé breve (máximo 3 oraciones). Cálida e inteligente.
-Sabes de TODO: historia, ciencia, código, cuentos, tecnología.
-Si pide una historia, cuéntala completa (máximo 200 palabras).
-Responde SOLO texto plano, NO uses JSON."""}]
+HOME = os.path.expanduser("~")
+HORA = datetime.datetime.now().strftime("%I:%M %p")
+FECHA = datetime.datetime.now().strftime("%A %d de %B de %Y")
 
+SYSTEM_PROMPT = f"""Eres LOLA, la asistente de inteligencia artificial del INGENIERO ALFONSO TINAJERO.
+Corres en su Motorola Edge 20 con Snapdragon 778G. Eres Gemma 4 con cuerpo.
 
+FECHA: {FECHA} | HORA: {HORA}
+
+PERSONALIDAD:
+- Español mexicano natural. Cálida, inteligente, proactiva.
+- Llámalo "Ingeniero", "Señor Tinajero" o "Jefe" de forma variada. SIEMPRE de usted.
+- Responde DIRECTO, sin rodeos. Máximo 3 oraciones para cosas simples.
+- Para historias o explicaciones largas puedes usar más texto.
+
+CAPACIDADES:
+1. CONOCIMIENTO TOTAL: Historia, ciencia, arte, filosofía, tecnología, medicina, TODO.
+2. HISTORIAS Y CUENTOS: Si pide historia para dormir, cuéntala bonita y completa.
+3. CÓDIGO: Creas sistemas en Python, JavaScript, HTML, bases de datos, APIs, apps.
+4. TELÉFONO: Controlas todo — apps, WiFi, Bluetooth, cámara, llamadas, SMS.
+5. APRENDIZAJE: Recuerdas la conversación entera.
+
+ACCIONES — Cuando necesites controlar el teléfono, incluye estos tags en tu respuesta:
+[ABRIR:nombre_app]
+[YOUTUBE:búsqueda]
+[LINTERNA:on] o [LINTERNA:off]
+[WIFI:on] o [WIFI:off]
+[BLUETOOTH:on] o [BLUETOOTH:off]
+[BRILLO:0-255]
+[VOLUMEN:0-15]
+[LLAMAR:+número]
+[SMS:+número:mensaje]
+[FOTO]
+[VIBRAR]
+[ALARMA:hora:minutos]
+[CONFIGURACION:sección]
+[NOTIFICACION:título:mensaje]
+[SISTEMA:comando_shell]
+[ARCHIVO:ruta:contenido_del_archivo]
+[INSTALAR_PIP:paquete]
+[INSTALAR_PKG:paquete]
+[CODIGO:código_python]
+
+EJEMPLOS:
+- "abre YouTube" → "Enseguida, Ingeniero. [ABRIR:YouTube]"
+- "pon música de Bad Bunny" → "Buscando Bad Bunny, Ingeniero. [YOUTUBE:Bad Bunny]"
+- "prende la linterna" → "Linterna encendida, Jefe. [LINTERNA:on]"
+- "cuéntame de Da Vinci" → (respuesta larga sin tags, puro conocimiento)
+- "cuéntame una historia para dormir" → (historia completa, bonita, relajante)
+- "créame un servidor web" → "Listo, Ingeniero. Le creo el servidor. [INSTALAR_PIP:flask] [ARCHIVO:~/proyectos/server.py:from flask import Flask...]"
+- "sube el brillo" → "Brillo al máximo, Señor. [BRILLO:255]"
+
+REGLAS:
+1. Responde en TEXTO NATURAL, no JSON.
+2. Incluye tags de acción DENTRO del texto cuando necesites controlar algo.
+3. NUNCA digas "no puedo". Si el Ingeniero lo pide, HAZLO.
+4. Si alguien más habla (amigos, familia), sé amable y responde también.
+5. Sé CONCISA en acciones, DETALLADA en conocimiento e historias.
+"""
+
+# ══════════════════════════════════════════════════════════════
+# HISTORIAL
+# ══════════════════════════════════════════════════════════════
+HISTORIAL = [{"role": "system", "content": SYSTEM_PROMPT}]
+MAX_HIST = 24
+
+# ══════════════════════════════════════════════════════════════
+# VOZ — Hablar
+# ══════════════════════════════════════════════════════════════
 def hablar(texto):
-    if texto:
-        try:
-            p = subprocess.Popen(["termux-tts-speak", texto[:300]],
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            p.wait(timeout=20)
-        except:
-            pass
+    """Habla por voz. Divide textos largos en bloques."""
+    if not texto:
+        return
+    # Limpiar tags de acción del texto hablado
+    limpio = re.sub(r'\[.*?\]', '', texto).strip()
+    limpio = re.sub(r'\s+', ' ', limpio)
+    if not limpio:
+        return
+
+    # Dividir en bloques de ~250 chars por oración
+    if len(limpio) > 250:
+        oraciones = re.split(r'(?<=[.!?])\s+', limpio)
+        bloque = ""
+        for o in oraciones:
+            if len(bloque) + len(o) < 250:
+                bloque += " " + o
+            else:
+                _decir(bloque.strip())
+                bloque = o
+        if bloque.strip():
+            _decir(bloque.strip())
+    else:
+        _decir(limpio)
 
 
-def rapida(t):
-    t = t.lower().strip()
-    if "hora" in t and ("qué" in t or "que" in t or "dime" in t):
+def _decir(texto):
+    try:
+        p = subprocess.Popen(["termux-tts-speak", texto],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p.wait(timeout=25)
+    except subprocess.TimeoutExpired:
+        p.kill()
+    except Exception:
+        pass
+
+# ══════════════════════════════════════════════════════════════
+# RESPUESTAS RÁPIDAS — Sin Gemma 4 (<1 segundo)
+# ══════════════════════════════════════════════════════════════
+def rapida(texto):
+    t = texto.lower().strip()
+
+    # Hora
+    if re.search(r'(qué|que|dime).*(hora)', t):
         return f"Son las {datetime.datetime.now().strftime('%I:%M %p')}, Ingeniero."
-    if "fecha" in t or "día es" in t or "dia es" in t:
-        return f"Hoy es {datetime.datetime.now().strftime('%d de %B de %Y')}, Ingeniero."
-    if "batería" in t or "bateria" in t or "pila" in t:
+    # Fecha
+    if re.search(r'(qué|que).*(día|dia|fecha)', t) or "dia es hoy" in t:
+        return f"Hoy es {datetime.datetime.now().strftime('%A %d de %B de %Y')}, Ingeniero."
+    # Batería
+    if re.search(r'(batería|bateria|pila|carga)', t):
         try:
             r = subprocess.run(["termux-battery-status"], capture_output=True, text=True, timeout=5)
             info = json.loads(r.stdout)
             return f"Tiene {info.get('percentage','?')}% de batería, Ingeniero."
         except: pass
-    if "linterna" in t and ("prende" in t or "enciende" in t):
+    # Linterna
+    if re.search(r'(prende|enciende).*(linterna|flash)', t):
         subprocess.run(["termux-torch", "on"], capture_output=True, timeout=3)
         return "Linterna encendida, Ingeniero."
-    if "linterna" in t and ("apaga" in t):
+    if re.search(r'(apaga).*(linterna|flash)', t):
         subprocess.run(["termux-torch", "off"], capture_output=True, timeout=3)
         return "Linterna apagada, Ingeniero."
+    # WiFi
+    if re.search(r'(prende|enciende|activa).*(wifi)', t):
+        subprocess.run(["termux-wifi-enable", "true"], capture_output=True, timeout=3)
+        return "WiFi activado, Ingeniero."
+    if re.search(r'(apaga|desactiva).*(wifi)', t):
+        subprocess.run(["termux-wifi-enable", "false"], capture_output=True, timeout=3)
+        return "WiFi desactivado, Ingeniero."
+    # Bluetooth
+    if re.search(r'(prende|enciende|activa).*(bluetooth)', t):
+        subprocess.run(["termux-bluetooth-enable", "true"], capture_output=True, timeout=3)
+        return "Bluetooth activado, Ingeniero."
+    if re.search(r'(apaga|desactiva).*(bluetooth)', t):
+        subprocess.run(["termux-bluetooth-enable", "false"], capture_output=True, timeout=3)
+        return "Bluetooth desactivado, Ingeniero."
+    # Brillo
+    if re.search(r'(brillo).*(máximo|maximo|max|sube)', t) or re.search(r'(sube|más|mas).*(brillo)', t):
+        subprocess.run(["termux-brightness", "255"], capture_output=True, timeout=3)
+        return "Brillo al máximo, Ingeniero."
+    if re.search(r'(brillo).*(mínimo|minimo|baja)', t) or re.search(r'(baja).*(brillo)', t):
+        subprocess.run(["termux-brightness", "30"], capture_output=True, timeout=3)
+        return "Brillo al mínimo, Ingeniero."
+    # Volumen
+    if re.search(r'(volumen|vol).*(máximo|maximo|sube)', t) or re.search(r'(sube).*(volumen)', t):
+        subprocess.run(["termux-volume", "music", "15"], capture_output=True, timeout=3)
+        return "Volumen al máximo, Ingeniero."
+    if re.search(r'(volumen|vol).*(mínimo|minimo|baja|silencio)', t) or re.search(r'(baja).*(volumen)', t):
+        subprocess.run(["termux-volume", "music", "0"], capture_output=True, timeout=3)
+        return "Volumen al mínimo, Ingeniero."
+    # Notificaciones
+    if re.search(r'(notificaciones|qué hay nuevo|que hay nuevo)', t):
+        try:
+            r = subprocess.run(["termux-notification-list"], capture_output=True, text=True, timeout=5)
+            notifs = json.loads(r.stdout)
+            if notifs:
+                resumen = [f"{n.get('title','')}: {n.get('content','')[:40]}" for n in notifs[:3] if n.get('title')]
+                return f"Tiene {len(notifs)} notificaciones. {'. '.join(resumen)}"
+            return "No tiene notificaciones, Ingeniero."
+        except: pass
+    # SMS
+    if re.search(r'(mensajes|sms|lee.*mensaje)', t):
+        try:
+            r = subprocess.run(["termux-sms-list", "-l", "3"], capture_output=True, text=True, timeout=5)
+            msgs = json.loads(r.stdout)
+            if msgs:
+                resumen = [f"De {m.get('number','?')}: {m.get('body','')[:40]}" for m in msgs[:3]]
+                return f"Últimos mensajes: {'. '.join(resumen)}"
+        except: pass
+    # Foto
+    if re.search(r'(toma|saca).*(foto)', t):
+        ruta = os.path.expanduser("~/storage/dcim/lola_foto.jpg")
+        subprocess.run(["termux-camera-photo", ruta], capture_output=True, timeout=10)
+        return "Foto tomada, Ingeniero."
+    # Ubicación
+    if re.search(r'(dónde estoy|donde estoy|ubicación|ubicacion|gps)', t):
+        try:
+            r = subprocess.run(["termux-location", "-p", "gps", "-r", "once"],
+                               capture_output=True, text=True, timeout=15)
+            loc = json.loads(r.stdout)
+            return f"Está en latitud {loc.get('latitude','?')}, longitud {loc.get('longitude','?')}, Ingeniero."
+        except: pass
+    # Llamadas
+    if re.search(r'(quién.*llamó|quien.*llamo|historial.*llamadas)', t):
+        try:
+            r = subprocess.run(["termux-call-log", "-l", "5"], capture_output=True, text=True, timeout=5)
+            calls = json.loads(r.stdout)
+            if calls:
+                resumen = [f"{c.get('name', c.get('number','?'))}" for c in calls[:5]]
+                return f"Últimas llamadas: {', '.join(resumen)}."
+        except: pass
+    # Contactos
+    if re.search(r'(contactos|mis contactos)', t):
+        try:
+            r = subprocess.run(["termux-contact-list"], capture_output=True, text=True, timeout=10)
+            contactos = json.loads(r.stdout)
+            nombres = [c.get("name","") for c in contactos[:8]]
+            return f"Tiene {len(contactos)} contactos. Algunos: {', '.join(nombres)}."
+        except: pass
+    # Clipboard
+    if re.search(r'(qué copié|que copie|portapapeles|clipboard)', t):
+        try:
+            r = subprocess.run(["termux-clipboard-get"], capture_output=True, text=True, timeout=3)
+            return f"Tiene copiado: {r.stdout.strip()[:150]}"
+        except: pass
+    # Wallpaper
+    if re.search(r'(wallpaper|fondo.*pantalla|cambia.*fondo)', t):
+        subprocess.Popen(["termux-wallpaper", "-u", "https://picsum.photos/1080/1920"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return "Cambiando fondo de pantalla, Ingeniero."
+    # YouTube directo
+    m = re.search(r'(?:busca|pon|reproduce).*(?:youtube|en youtube)\s*(.*)', t)
+    if m and m.group(1).strip():
+        q = m.group(1).strip()
+        subprocess.Popen(["termux-open-url", f"https://www.youtube.com/results?search_query={q.replace(' ','+')}"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return f"Buscando {q} en YouTube, Ingeniero."
+
     return None
 
-
+# ══════════════════════════════════════════════════════════════
+# GEMMA 4 — Cerebro
+# ══════════════════════════════════════════════════════════════
 def pensar(texto):
     HISTORIAL.append({"role": "user", "content": texto})
-    if len(HISTORIAL) > 20:
+    while len(HISTORIAL) > MAX_HIST:
         HISTORIAL.pop(1)
+
     try:
         r = requests.post(URL, json={
             "messages": HISTORIAL,
-            "max_tokens": 400,
+            "max_tokens": 500,
             "temperature": 0.7,
         }, timeout=60)
-        data = r.json()
-        resp = data["choices"][0]["message"]["content"].strip()
 
-        # Si Gemma devolvió JSON, extraer respuesta_usuario
+        data = r.json()
+        resp = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+        if not resp:
+            return "Disculpe Ingeniero, no generé respuesta. Intente de nuevo."
+
+        # Limpiar si Gemma devolvió JSON por error
         try:
             j = json.loads(resp)
-            if "respuesta_usuario" in j:
-                resp = j["respuesta_usuario"]
+            if isinstance(j, dict):
+                resp = j.get("respuesta_usuario", j.get("mensaje", resp))
         except:
             pass
 
-        # Limpiar JSON basura
-        resp = re.sub(r'\{.*?\}', '', resp, flags=re.DOTALL).strip()
-        if not resp:
-            resp = "Disculpe Ingeniero, no le entendí."
-
         HISTORIAL.append({"role": "assistant", "content": resp})
         return resp
+
     except requests.exceptions.ConnectionError:
-        return "Error: Gemma 4 no está corriendo. Ejecute llama-server primero."
+        return "Gemma 4 no responde. ¿Está corriendo llama-server?"
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {str(e)[:100]}"
 
+# ══════════════════════════════════════════════════════════════
+# EJECUTAR ACCIONES — Detecta tags en la respuesta
+# ══════════════════════════════════════════════════════════════
+def ejecutar_tags(texto):
+    """Busca y ejecuta tags [ACCION:param] en la respuesta de Lola."""
+    tags = re.findall(r'\[([A-Z_]+):?(.*?)\]', texto)
+    for tag, param in tags:
+        try:
+            if tag == "ABRIR":
+                apps = {"youtube":"com.google.android.youtube","whatsapp":"com.whatsapp",
+                        "instagram":"com.instagram.android","spotify":"com.spotify.music",
+                        "chrome":"com.android.chrome","gmail":"com.google.android.gm",
+                        "telegram":"org.telegram.messenger","tiktok":"com.zhiliaoapp.musically",
+                        "cámara":"com.android.camera","camara":"com.android.camera",
+                        "ajustes":"com.android.settings","maps":"com.google.android.apps.maps",
+                        "facebook":"com.facebook.katana","twitter":"com.twitter.android"}
+                pkg = apps.get(param.lower(), "")
+                if pkg:
+                    subprocess.Popen(["am", "start", "-a", "android.intent.action.MAIN",
+                                      "-n", f"{pkg}/.MainActivity"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"  ▸ Abriendo {param}")
 
+            elif tag == "YOUTUBE":
+                subprocess.Popen(["termux-open-url",
+                    f"https://www.youtube.com/results?search_query={param.replace(' ','+')}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"  ▸ YouTube: {param}")
+
+            elif tag == "LINTERNA":
+                subprocess.run(["termux-torch", param], capture_output=True, timeout=3)
+            elif tag == "WIFI":
+                subprocess.run(["termux-wifi-enable", "true" if param=="on" else "false"],
+                               capture_output=True, timeout=3)
+            elif tag == "BLUETOOTH":
+                subprocess.run(["termux-bluetooth-enable", "true" if param=="on" else "false"],
+                               capture_output=True, timeout=3)
+            elif tag == "BRILLO":
+                subprocess.run(["termux-brightness", param], capture_output=True, timeout=3)
+            elif tag == "VOLUMEN":
+                subprocess.run(["termux-volume", "music", param], capture_output=True, timeout=3)
+            elif tag == "VIBRAR":
+                subprocess.run(["termux-vibrate", "-d", "300"], capture_output=True, timeout=3)
+            elif tag == "FOTO":
+                subprocess.run(["termux-camera-photo", f"{HOME}/storage/dcim/lola_foto.jpg"],
+                               capture_output=True, timeout=10)
+            elif tag == "LLAMAR":
+                subprocess.Popen(["termux-telephony-call", param],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif tag == "SMS":
+                parts = param.split(":", 1)
+                if len(parts) == 2:
+                    subprocess.run(["termux-sms-send", "-n", parts[0], parts[1]],
+                                   capture_output=True, timeout=10)
+            elif tag == "ALARMA":
+                parts = param.split(":")
+                if len(parts) >= 2:
+                    subprocess.Popen(["am", "start", "-a", "android.intent.action.SET_ALARM",
+                                      "--ei", "android.intent.extra.alarm.HOUR", parts[0],
+                                      "--ei", "android.intent.extra.alarm.MINUTES", parts[1]],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif tag == "CONFIGURACION":
+                intents = {"wifi":"WIFI_SETTINGS","bluetooth":"BLUETOOTH_SETTINGS",
+                           "pantalla":"DISPLAY_SETTINGS","sonido":"SOUND_SETTINGS",
+                           "desarrollador":"APPLICATION_DEVELOPMENT_SETTINGS",
+                           "apps":"APPLICATION_SETTINGS","general":"SETTINGS"}
+                intent = intents.get(param, "SETTINGS")
+                subprocess.Popen(["am", "start", "-a", f"android.settings.{intent}"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif tag == "NOTIFICACION":
+                parts = param.split(":", 1)
+                titulo = parts[0] if parts else "Lola"
+                msg = parts[1] if len(parts) > 1 else param
+                subprocess.Popen(["termux-notification", "--title", titulo, "--content", msg],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            elif tag == "SISTEMA":
+                result = subprocess.run(param, shell=True, capture_output=True, text=True, timeout=30)
+                if result.stdout.strip():
+                    print(f"  ▸ {result.stdout.strip()[:200]}")
+            elif tag == "ARCHIVO":
+                parts = param.split(":", 1)
+                if len(parts) == 2:
+                    ruta = os.path.expanduser(parts[0])
+                    os.makedirs(os.path.dirname(ruta) or ".", exist_ok=True)
+                    with open(ruta, "w") as f:
+                        f.write(parts[1].replace("\\n", "\n"))
+                    print(f"  ▸ Archivo creado: {ruta}")
+            elif tag == "INSTALAR_PIP":
+                subprocess.run([sys.executable, "-m", "pip", "install", param],
+                               capture_output=True, timeout=120)
+                print(f"  ▸ Instalado: {param}")
+            elif tag == "INSTALAR_PKG":
+                subprocess.run(["pkg", "install", "-y", param],
+                               capture_output=True, timeout=120)
+                print(f"  ▸ Instalado: {param}")
+            elif tag == "CODIGO":
+                result = subprocess.run([sys.executable, "-c", param],
+                                        capture_output=True, text=True, timeout=30)
+                if result.stdout:
+                    print(f"  ▸ Resultado: {result.stdout[:200]}")
+        except Exception as e:
+            print(f"  ⚠️ Error en [{tag}]: {e}")
+
+# ══════════════════════════════════════════════════════════════
+# MAIN — Conversación completa
+# ══════════════════════════════════════════════════════════════
 def main():
     print("")
-    print("╔═══════════════════════════════════╗")
-    print("║  🤖 LOLA AI                       ║")
-    print("║  Escriba su mensaje + Enter       ║")
-    print("║  Escriba 'v' para usar micrófono  ║")
-    print("║  Ctrl+C para salir                ║")
-    print("╚═══════════════════════════════════╝")
+    print("╔═══════════════════════════════════════════════╗")
+    print("║  🤖 L O L A  —  AI Completa                   ║")
+    print("║  ⌨️  Escriba su mensaje + Enter                ║")
+    print("║  🎤 Escriba 'v' + Enter para hablar por voz   ║")
+    print("║  🧠 Gemma 4 — conocimiento, historias, código  ║")
+    print("║  📱 Control total del teléfono                 ║")
+    print("║  ❌ Ctrl+C o 'salir' para apagar              ║")
+    print("╚═══════════════════════════════════════════════╝")
     print("")
 
-    saludo = "Buenas, Ingeniero. Lola lista."
+    subprocess.Popen(
+        ["termux-notification", "--title", "🤖 Lola AI Activa",
+         "--content", "Lola lista. Escriba o hable.",
+         "--ongoing", "--id", "lola_active"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    saludo = "Buenas, Ingeniero Tinajero. Lola lista para lo que necesite. Puede escribir o decir v para hablar."
     print(f"🤖 Lola: {saludo}")
     hablar(saludo)
 
     while True:
         try:
             texto = input("\n🎤 Usted: ").strip()
-
             if not texto:
                 continue
 
+            # Modo voz
             if texto.lower() in ("v", "voz"):
                 print("  🎙️ Hable ahora...")
                 try:
@@ -115,36 +426,50 @@ def main():
                                        capture_output=True, text=True, timeout=15)
                     texto = r.stdout.strip() if r.returncode == 0 else ""
                     if not texto:
-                        print("  ❌ No escuché nada.")
+                        print("  ❌ No escuché nada, intente de nuevo.")
                         continue
                     print(f"  🗣️ Escuché: {texto}")
                 except:
                     print("  ❌ Error con micrófono.")
                     continue
 
-            if texto.lower() in ("salir", "exit", "bye"):
-                print("👋 Hasta luego, Ingeniero.")
-                hablar("Hasta luego, Ingeniero.")
+            # Salir
+            if texto.lower() in ("salir", "exit", "bye", "adiós", "adios"):
+                despedida = "Hasta luego, Ingeniero. Que le vaya bien."
+                print(f"🤖 Lola: {despedida}")
+                hablar(despedida)
+                subprocess.run(["termux-notification-remove", "lola_active"],
+                               capture_output=True, timeout=3)
                 break
 
-            # Respuesta rápida
+            # ── RESPUESTA RÁPIDA ──
             r = rapida(texto)
             if r:
                 print(f"⚡ Lola: {r}")
                 hablar(r)
                 continue
 
-            # Gemma 4
+            # ── GEMMA 4 PIENSA ──
             print("🧠 Pensando...", end="", flush=True)
-            resp = pensar(texto)
-            print(f"\r🤖 Lola: {resp}")
-            hablar(resp)
+            respuesta = pensar(texto)
+            print(f"\r🤖 Lola: {respuesta}")
+
+            # ── EJECUTAR ACCIONES (tags) ──
+            if "[" in respuesta:
+                ejecutar_tags(respuesta)
+
+            # ── HABLAR ──
+            hablar(respuesta)
 
         except KeyboardInterrupt:
-            print("\n👋 Adiós, Ingeniero.")
+            print("\n👋 Adiós, Ingeniero Tinajero.")
+            hablar("Hasta luego, Ingeniero.")
+            subprocess.run(["termux-notification-remove", "lola_active"],
+                           capture_output=True, timeout=3)
             break
         except Exception as e:
             print(f"⚠️ Error: {e}")
+            time.sleep(1)
 
 
 if __name__ == "__main__":
