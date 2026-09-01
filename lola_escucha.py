@@ -333,21 +333,6 @@ def respuesta_rapida(texto):
     return None  # No es respuesta rápida → Gemma 4
 
 
-def escuchar():
-    """Escucha con Google Speech Recognition."""
-    try:
-        r = subprocess.run(
-            ["termux-speech-to-text"],
-            capture_output=True, text=True, timeout=15
-        )
-        if r.returncode == 0 and r.stdout.strip():
-            return r.stdout.strip()
-    except subprocess.TimeoutExpired:
-        pass
-    except Exception:
-        pass
-    return ""
-
 
 def pensar(texto):
     """Envía a Gemma 4 — siempre devuelve respuesta limpia."""
@@ -639,6 +624,27 @@ def _hablar_bloque(texto):
         pass
 
 
+def escuchar():
+    """Escucha: texto del teclado O voz con Google Speech."""
+    try:
+        texto = input("\r🎤 Usted: ").strip()
+        if texto == "v" or texto == "voz":
+            # Modo voz: usar Google Speech
+            print("  🎙️ Hable ahora...")
+            r = subprocess.run(
+                ["termux-speech-to-text"],
+                capture_output=True, text=True, timeout=15
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                return r.stdout.strip()
+            return ""
+        return texto
+    except EOFError:
+        return ""
+    except Exception:
+        return ""
+
+
 # ══════════════════════════════════════════════════════════════
 # MAIN — Bucle principal de conversación
 # ══════════════════════════════════════════════════════════════
@@ -647,10 +653,10 @@ def main():
     print("")
     print("╔═══════════════════════════════════════════╗")
     print("║  🤖 L O L A  —  AI Completa               ║")
-    print("║  🎤 Solo hable, Lola siempre escucha      ║")
+    print("║  ⌨️  Escriba su mensaje y Enter            ║")
+    print("║  🎤 Escriba 'v' + Enter para hablar       ║")
     print("║  🧠 Gemma 4 procesa TODO                   ║")
     print("║  📱 Control total del teléfono             ║")
-    print("║  💡 Historias, código, conocimiento, todo  ║")
     print("║  ❌ Ctrl+C para apagar                    ║")
     print("╚═══════════════════════════════════════════╝")
     print("")
@@ -658,7 +664,7 @@ def main():
     # Notificación
     subprocess.Popen(
         ["termux-notification", "--title", "🤖 Lola AI Activa",
-         "--content", "Solo hable. Lola escucha siempre.",
+         "--content", "Lola escuchando.",
          "--ongoing", "--id", "lola_active"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
@@ -670,12 +676,10 @@ def main():
 
     while True:
         try:
-            # ── ESCUCHAR ──
-            print("🎤 Escuchando...", end="", flush=True)
+            # ── ESCUCHAR / LEER ──
             texto = escuchar()
 
             if not texto or len(texto) < 2:
-                print("\r                \r", end="", flush=True)
                 continue
 
             print(f"\r🗣️  Usted: {texto}")
