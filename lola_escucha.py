@@ -72,11 +72,24 @@ def _decir(texto):
 # ══════════════════════════════════════════════════════════════
 # RESPUESTAS RÁPIDAS — Sin Gemma 4 (<1 segundo)
 # ══════════════════════════════════════════════════════════════
-def rapida(texto):
-    t = texto.lower().strip()
+def corregir_texto(texto):
+    """Corrige errores comunes del reconocimiento de voz."""
+    fixes = {
+        "bola": "hola", "ola": "hola", "jola": "hola", "olla": "hola",
+        "loa": "lola", "lolla": "lola", "nola": "lola",
+        "bueno": "buenos", "wenas": "buenas",
+        "cómo": "como", "k": "que", "q": "que",
+    }
+    palabras = texto.lower().split()
+    corregidas = [fixes.get(p, p) for p in palabras]
+    return " ".join(corregidas)
 
-    # ── SALUDOS (instantáneos) ──
-    if re.search(r'^(hola|hey|buenas|buenos|qué onda|que onda|saludos)', t):
+
+def rapida(texto):
+    t = corregir_texto(texto).lower().strip()
+
+    # ── SALUDOS ──
+    if re.search(r'(hola|hey|buenas|buenos|qué onda|que onda|saludos|qué tal|que tal)', t):
         import random
         saludos = [
             "¡Hola, Ingeniero! ¿En qué le ayudo?",
@@ -88,11 +101,11 @@ def rapida(texto):
         return random.choice(saludos)
 
     # ── DESPEDIDAS ──
-    if re.search(r'^(adiós|adios|bye|hasta luego|nos vemos|chao|gracias.*todo)', t):
+    if re.search(r'(adiós|adios|bye|hasta luego|nos vemos|chao)', t):
         return "Hasta luego, Ingeniero. Que le vaya muy bien."
 
     # ── CÓMO ESTÁS ──
-    if re.search(r'(cómo estás|como estas|cómo vas|como vas|qué tal estás)', t):
+    if re.search(r'(como estas|como vas|como te va|como andas)', t):
         return "Muy bien, Ingeniero. Lista para servirle. ¿En qué le ayudo?"
 
 
@@ -478,7 +491,13 @@ def main():
             if not texto or len(texto) < 2:
                 continue
 
-            print(f"🗣️ Usted: {texto}")
+            # Corregir errores de voz
+            original = texto
+            texto = corregir_texto(texto)
+            if texto != original.lower():
+                print(f"🗣️ Escuché: {original} → {texto}")
+            else:
+                print(f"🗣️ Usted: {texto}")
 
             # Salir
             if texto.lower() in ("salir", "exit", "bye", "adiós", "adios", "apágate", "apagate"):
