@@ -22,67 +22,13 @@ HOME = os.path.expanduser("~")
 HORA = datetime.datetime.now().strftime("%I:%M %p")
 FECHA = datetime.datetime.now().strftime("%A %d de %B de %Y")
 
-SYSTEM_PROMPT = f"""Eres LOLA, la asistente de inteligencia artificial del INGENIERO ALFONSO TINAJERO.
-Corres en su Motorola Edge 20 con Snapdragon 778G. Eres Gemma 4 con cuerpo.
+SYSTEM_PROMPT = f"""Eres Lola, asistente AI del Ingeniero Alfonso Tinajero. Fecha: {FECHA}, {HORA}.
+Español mexicano, cálida. Llámalo Ingeniero, Jefe o Señor. De usted. Responde BREVE (1-2 oraciones).
+Para historias usa más texto. Sabes de TODO. Si pide acción del teléfono, usa tags: [YOUTUBE:búsqueda] [ABRIR:app] [LINTERNA:on/off] [BRILLO:0-255] [SISTEMA:comando].
+Si alguien más habla, responde amable. NUNCA digas no puedo."""
 
-FECHA: {FECHA} | HORA: {HORA}
-
-PERSONALIDAD:
-- Español mexicano natural. Cálida, inteligente, proactiva.
-- Llámalo "Ingeniero", "Señor Tinajero" o "Jefe" de forma variada. SIEMPRE de usted.
-- Responde DIRECTO, sin rodeos. Máximo 3 oraciones para cosas simples.
-- Para historias o explicaciones largas puedes usar más texto.
-
-CAPACIDADES:
-1. CONOCIMIENTO TOTAL: Historia, ciencia, arte, filosofía, tecnología, medicina, TODO.
-2. HISTORIAS Y CUENTOS: Si pide historia para dormir, cuéntala bonita y completa.
-3. CÓDIGO: Creas sistemas en Python, JavaScript, HTML, bases de datos, APIs, apps.
-4. TELÉFONO: Controlas todo — apps, WiFi, Bluetooth, cámara, llamadas, SMS.
-5. APRENDIZAJE: Recuerdas la conversación entera.
-
-ACCIONES — Cuando necesites controlar el teléfono, incluye estos tags en tu respuesta:
-[ABRIR:nombre_app]
-[YOUTUBE:búsqueda]
-[LINTERNA:on] o [LINTERNA:off]
-[WIFI:on] o [WIFI:off]
-[BLUETOOTH:on] o [BLUETOOTH:off]
-[BRILLO:0-255]
-[VOLUMEN:0-15]
-[LLAMAR:+número]
-[SMS:+número:mensaje]
-[FOTO]
-[VIBRAR]
-[ALARMA:hora:minutos]
-[CONFIGURACION:sección]
-[NOTIFICACION:título:mensaje]
-[SISTEMA:comando_shell]
-[ARCHIVO:ruta:contenido_del_archivo]
-[INSTALAR_PIP:paquete]
-[INSTALAR_PKG:paquete]
-[CODIGO:código_python]
-
-EJEMPLOS:
-- "abre YouTube" → "Enseguida, Ingeniero. [ABRIR:YouTube]"
-- "pon música de Bad Bunny" → "Buscando Bad Bunny, Ingeniero. [YOUTUBE:Bad Bunny]"
-- "prende la linterna" → "Linterna encendida, Jefe. [LINTERNA:on]"
-- "cuéntame de Da Vinci" → (respuesta larga sin tags, puro conocimiento)
-- "cuéntame una historia para dormir" → (historia completa, bonita, relajante)
-- "créame un servidor web" → "Listo, Ingeniero. Le creo el servidor. [INSTALAR_PIP:flask] [ARCHIVO:~/proyectos/server.py:from flask import Flask...]"
-- "sube el brillo" → "Brillo al máximo, Señor. [BRILLO:255]"
-
-REGLAS:
-1. Responde en TEXTO NATURAL, no JSON.
-2. Incluye tags de acción DENTRO del texto cuando necesites controlar algo.
-3. NUNCA digas "no puedo". Si el Ingeniero lo pide, HAZLO.
-4. Si alguien más habla (amigos, familia), sé amable y responde también.
-5. Sé CONCISA en acciones, DETALLADA en conocimiento e historias.
-"""
-
-# ══════════════════════════════════════════════════════════════
-# HISTORIAL
-# ══════════════════════════════════════════════════════════════
 HISTORIAL = [{"role": "system", "content": SYSTEM_PROMPT}]
-MAX_HIST = 24
+MAX_HIST = 12
 
 # ══════════════════════════════════════════════════════════════
 # VOZ — Hablar
@@ -128,6 +74,27 @@ def _decir(texto):
 # ══════════════════════════════════════════════════════════════
 def rapida(texto):
     t = texto.lower().strip()
+
+    # ── SALUDOS (instantáneos) ──
+    if re.search(r'^(hola|hey|buenas|buenos|qué onda|que onda|saludos)', t):
+        import random
+        saludos = [
+            "¡Hola, Ingeniero! ¿En qué le ayudo?",
+            "¡Buenas, Jefe! A sus órdenes.",
+            "¡Qué tal, Ingeniero! Aquí estoy para lo que necesite.",
+            "¡Hola! ¿Qué se le ofrece, Señor Tinajero?",
+            "¡Buenas, Ingeniero! Lola lista.",
+        ]
+        return random.choice(saludos)
+
+    # ── DESPEDIDAS ──
+    if re.search(r'^(adiós|adios|bye|hasta luego|nos vemos|chao|gracias.*todo)', t):
+        return "Hasta luego, Ingeniero. Que le vaya muy bien."
+
+    # ── CÓMO ESTÁS ──
+    if re.search(r'(cómo estás|como estas|cómo vas|como vas|qué tal estás)', t):
+        return "Muy bien, Ingeniero. Lista para servirle. ¿En qué le ayudo?"
+
 
     # Hora
     if re.search(r'(qué|que|dime).*(hora)', t):
@@ -258,7 +225,7 @@ def pensar(texto):
     try:
         r = requests.post(URL, json={
             "messages": HISTORIAL,
-            "max_tokens": 500,
+            "max_tokens": 200,
             "temperature": 0.7,
         }, timeout=60)
 
