@@ -395,30 +395,84 @@ def main():
                     continue
             else:
                 # ── MODO VOZ — Solo hable ──
-                print("\n🎤 Escuchando... (hable ahora)")
-                try:
-                    r = subprocess.run(
-                        ["termux-speech-to-text"],
-                        capture_output=True, text=True, timeout=20
-                    )
-                    if r.returncode == 0 and r.stdout.strip():
-                        texto = r.stdout.strip()
-                        fallos_voz = 0
-                    else:
+                subprocess.run(["termux-vibrate", "-d", "200"], capture_output=True, timeout=2)
+                print("\n🎤 Hable ahora...")
+
+                # ── MÉTODO 1: Whisper.cpp (local, preciso) ──
+                whisper_bin = os.path.expanduser("~/whisper.cpp/build/bin/whisper-cli")
+                whisper_model = os.path.expanduser("~/whisper.cpp/models/ggml-tiny.bin")
+
+                if os.path.exists(whisper_bin) and os.path.exists(whisper_model):
+                    try:
+                        # Grabar 4 segundos
+                        audio_m4a = os.path.expanduser("~/.lola/data/audio/voz.m4a")
+                        audio_wav = os.path.expanduser("~/.lola/data/audio/voz.wav")
+                        os.makedirs(os.path.dirname(audio_m4a), exist_ok=True)
+
+                        # Limpiar archivos anteriores
+                        for f in [audio_m4a, audio_wav]:
+                            if os.path.exists(f):
+                                os.remove(f)
+
+                        # Grabar
+                        subprocess.Popen(
+                            ["termux-microphone-record", "-f", audio_m4a, "-l", "4"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                        )
+                        time.sleep(4)
+                        subprocess.run(
+                            ["termux-microphone-record", "-q"],
+                            capture_output=True, timeout=3
+                        )
+                        time.sleep(0.5)
+
+                        # Convertir a WAV
+                        subprocess.run(
+                            ["ffmpeg", "-y", "-i", audio_m4a,
+                             "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le",
+                             audio_wav],
+                            capture_output=True, timeout=10
+                        )
+
+                        # Transcribir con Whisper
+                        if os.path.exists(audio_wav):
+                            r = subprocess.run(
+                                [whisper_bin, "-m", whisper_model,
+                                 "-f", audio_wav, "-l", "es",
+                                 "--no-timestamps", "-nt"],
+                                capture_output=True, text=True, timeout=15
+                            )
+                            texto = r.stdout.strip()
+                            # Limpiar output de whisper
+                            texto = re.sub(r'\[.*?\]', '', texto).strip()
+                            texto = texto.replace('\n', ' ').strip()
+                            if texto:
+                                fallos_voz = 0
+                            else:
+                                fallos_voz += 1
+                    except Exception as e:
+                        print(f"  ⚠️ {e}")
                         fallos_voz += 1
-                        if fallos_voz >= 5:
-                            print("⚠️ El micrófono no responde. Cambiando a modo texto.")
-                            print("   Escriba 'v' para volver a intentar voz.")
-                            modo_texto = True
-                        continue
-                except subprocess.TimeoutExpired:
-                    fallos_voz += 1
-                    if fallos_voz >= 3:
-                        print("⚠️ Micrófono sin respuesta. Modo texto activado.")
-                        print("   Escriba 'v' para volver a intentar voz.")
-                        modo_texto = True
-                    continue
-                except Exception:
+                else:
+                    # ── MÉTODO 2: Google Speech (fallback) ──
+                    try:
+                        r = subprocess.run(
+                            ["termux-speech-to-text"],
+                            capture_output=True, text=True, timeout=15
+                        )
+                        if r.returncode == 0 and r.stdout.strip():
+                            texto = r.stdout.strip()
+                            fallos_voz = 0
+                        else:
+                            fallos_voz += 1
+                    except:
+                        fallos_voz += 1
+
+                if fallos_voz >= 5:
+                    print("⚠️ Micrófono no responde. Modo texto.")
+                    print("   Escriba 'v' para reintentar voz.")
+                    modo_texto = True
+                if not texto:
                     continue
 
             if not texto or len(texto) < 2:
