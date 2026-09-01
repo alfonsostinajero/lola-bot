@@ -394,53 +394,85 @@ def main():
     print("")
     print("╔═══════════════════════════════════════════════╗")
     print("║  🤖 L O L A  —  AI Completa                   ║")
-    print("║  ⌨️  Escriba su mensaje + Enter                ║")
-    print("║  🎤 Escriba 'v' + Enter para hablar por voz   ║")
+    print("║  🎤 Solo HABLE — Lola siempre escucha         ║")
     print("║  🧠 Gemma 4 — conocimiento, historias, código  ║")
     print("║  📱 Control total del teléfono                 ║")
-    print("║  ❌ Ctrl+C o 'salir' para apagar              ║")
+    print("║  ⌨️  Escriba 't' + Enter para modo texto       ║")
+    print("║  ❌ Ctrl+C para apagar                        ║")
     print("╚═══════════════════════════════════════════════╝")
     print("")
 
     subprocess.Popen(
         ["termux-notification", "--title", "🤖 Lola AI Activa",
-         "--content", "Lola lista. Escriba o hable.",
+         "--content", "Solo hable. Lola escucha.",
          "--ongoing", "--id", "lola_active"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    saludo = "Buenas, Ingeniero Tinajero. Lola lista para lo que necesite. Puede escribir o decir v para hablar."
+    saludo = "Buenas, Ingeniero. Lola lista. Solo hable."
     print(f"🤖 Lola: {saludo}")
     hablar(saludo)
 
+    modo_texto = False
+    fallos_voz = 0
+
     while True:
         try:
-            texto = input("\n🎤 Usted: ").strip()
-            if not texto:
-                continue
+            texto = ""
 
-            # Modo voz
-            if texto.lower() in ("v", "voz"):
-                print("  🎙️ Hable ahora...")
+            if modo_texto:
+                # ── MODO TEXTO ──
+                texto = input("\n⌨️ Usted: ").strip()
+                if texto.lower() == "v":
+                    modo_texto = False
+                    print("🎤 Cambiando a modo VOZ...")
+                    continue
+            else:
+                # ── MODO VOZ — Solo hable ──
+                print("\n🎤 Escuchando... (hable ahora)")
                 try:
-                    r = subprocess.run(["termux-speech-to-text"],
-                                       capture_output=True, text=True, timeout=15)
-                    texto = r.stdout.strip() if r.returncode == 0 else ""
-                    if not texto:
-                        print("  ❌ No escuché nada, intente de nuevo.")
+                    r = subprocess.run(
+                        ["termux-speech-to-text"],
+                        capture_output=True, text=True, timeout=20
+                    )
+                    if r.returncode == 0 and r.stdout.strip():
+                        texto = r.stdout.strip()
+                        fallos_voz = 0
+                    else:
+                        fallos_voz += 1
+                        if fallos_voz >= 5:
+                            print("⚠️ El micrófono no responde. Cambiando a modo texto.")
+                            print("   Escriba 'v' para volver a intentar voz.")
+                            modo_texto = True
                         continue
-                    print(f"  🗣️ Escuché: {texto}")
-                except:
-                    print("  ❌ Error con micrófono.")
+                except subprocess.TimeoutExpired:
+                    fallos_voz += 1
+                    if fallos_voz >= 3:
+                        print("⚠️ Micrófono sin respuesta. Modo texto activado.")
+                        print("   Escriba 'v' para volver a intentar voz.")
+                        modo_texto = True
+                    continue
+                except Exception:
                     continue
 
+            if not texto or len(texto) < 2:
+                continue
+
+            print(f"🗣️ Usted: {texto}")
+
             # Salir
-            if texto.lower() in ("salir", "exit", "bye", "adiós", "adios"):
-                despedida = "Hasta luego, Ingeniero. Que le vaya bien."
+            if texto.lower() in ("salir", "exit", "bye", "adiós", "adios", "apágate", "apagate"):
+                despedida = "Hasta luego, Ingeniero. Que descanse."
                 print(f"🤖 Lola: {despedida}")
                 hablar(despedida)
                 subprocess.run(["termux-notification-remove", "lola_active"],
                                capture_output=True, timeout=3)
                 break
+
+            # Cambiar a modo texto
+            if texto.lower() in ("t", "texto"):
+                modo_texto = True
+                print("⌨️ Modo texto activado. Escriba 'v' para volver a voz.")
+                continue
 
             # ── RESPUESTA RÁPIDA ──
             r = rapida(texto)
@@ -454,7 +486,7 @@ def main():
             respuesta = pensar(texto)
             print(f"\r🤖 Lola: {respuesta}")
 
-            # ── EJECUTAR ACCIONES (tags) ──
+            # ── EJECUTAR ACCIONES ──
             if "[" in respuesta:
                 ejecutar_tags(respuesta)
 
