@@ -394,76 +394,37 @@ def main():
     print("")
     print("╔═══════════════════════════════════════════════╗")
     print("║  🤖 L O L A  —  AI Completa                   ║")
-    print("║  🎤 Solo HABLE — Lola siempre escucha         ║")
+    print("║  🎤 TOQUE EL MICRÓFONO DE SU TECLADO PARA     ║")
+    print("║     HABLAR Y PRESIONE ENTER                   ║")
     print("║  🧠 Gemma 4 — conocimiento, historias, código  ║")
     print("║  📱 Control total del teléfono                 ║")
-    print("║  ⌨️  Escriba 't' + Enter para modo texto       ║")
-    print("║  ❌ Ctrl+C para apagar                        ║")
+    print("║  ❌ Ctrl+C o 'salir' para apagar              ║")
     print("╚═══════════════════════════════════════════════╝")
     print("")
 
     subprocess.Popen(
         ["termux-notification", "--title", "🤖 Lola AI Activa",
-         "--content", "Solo hable. Lola escucha.",
+         "--content", "Toque el microfono del teclado para hablar.",
          "--ongoing", "--id", "lola_active"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    saludo = "Buenas, Ingeniero. Lola lista. Solo hable."
+    saludo = "Buenas, Ingeniero. Lola lista. Toque el micrófono de su teclado para hablarme."
     print(f"🤖 Lola: {saludo}")
     hablar(saludo)
 
-    modo_texto = False
-    fallos_voz = 0
-
     while True:
         try:
-            texto = ""
-
-            if modo_texto:
-                # ── MODO TEXTO ──
-                texto = input("\n⌨️ Usted: ").strip()
-                if texto.lower() == "v":
-                    modo_texto = False
-                    print("🎤 Cambiando a modo VOZ...")
-                    continue
-            else:
-                # ── MODO VOZ — Google Speech (más preciso) ──
-                subprocess.run(["termux-vibrate", "-d", "200"], capture_output=True, timeout=2)
-                print("\n🎤 Hable ahora...")
-                try:
-                    r = subprocess.run(
-                        ["termux-speech-to-text"],
-                        capture_output=True, text=True, timeout=15
-                    )
-                    if r.returncode == 0 and r.stdout.strip():
-                        texto = r.stdout.strip()
-                        fallos_voz = 0
-                    else:
-                        fallos_voz += 1
-                        if fallos_voz >= 5:
-                            print("⚠️ Micrófono no responde. Modo texto.")
-                            print("   Escriba 'v' para reintentar voz.")
-                            modo_texto = True
-                        continue
-                except subprocess.TimeoutExpired:
-                    fallos_voz += 1
-                    if fallos_voz >= 3:
-                        print("⚠️ Sin respuesta. Modo texto.")
-                        modo_texto = True
-                    continue
-                except:
-                    continue
-
+            # ── SOLO INPUT — EL USUARIO USA EL TECLADO/GBOARD MIC ──
+            texto = input("\n🎤 Usted (toque el 🎤 del teclado): ").strip()
+            
             if not texto or len(texto) < 2:
                 continue
 
-            # Corregir errores de voz
+            # Corregir errores menores por si acaso
             original = texto
             texto = corregir_texto(texto)
             if texto != original.lower():
                 print(f"🗣️ Escuché: {original} → {texto}")
-            else:
-                print(f"🗣️ Usted: {texto}")
 
             # Salir
             if texto.lower() in ("salir", "exit", "bye", "adiós", "adios", "apágate", "apagate"):
@@ -473,12 +434,6 @@ def main():
                 subprocess.run(["termux-notification-remove", "lola_active"],
                                capture_output=True, timeout=3)
                 break
-
-            # Cambiar a modo texto
-            if texto.lower() in ("t", "texto"):
-                modo_texto = True
-                print("⌨️ Modo texto activado. Escriba 'v' para volver a voz.")
-                continue
 
             # ── RESPUESTA RÁPIDA ──
             r = rapida(texto)
