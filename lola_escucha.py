@@ -125,37 +125,60 @@ def escuchar():
 
 
 def pensar(texto):
-    """Envía a Gemma 4 y obtiene respuesta completa con acciones."""
+    """Envía a Gemma 4 con STREAMING — Lola habla mientras Gemma piensa."""
     global historial
 
     historial.append({"role": "user", "content": texto})
 
-    # Mantener historial manejable
     mensajes = [{"role": "system", "content": SYSTEM_PROMPT}]
     mensajes += historial[-MAX_HISTORIAL:]
 
     try:
+        # Streaming: recibir tokens conforme se generan
         r = requests.post(GEMMA_URL, json={
             "messages": mensajes,
-            "max_tokens": 500,  # Suficiente para historias y código
+            "max_tokens": 500,
             "temperature": 0.7,
-            "stop": ["\n\n\n"],
-        }, timeout=60)
+            "stream": True,  # ← STREAMING para velocidad
+        }, timeout=60, stream=True)
 
-        data = r.json()
-        contenido = data["choices"][0]["message"]["content"].strip()
+        contenido = ""
+        for line in r.iter_lines():
+            if not line:
+                continue
+            line_str = line.decode("utf-8")
+            if line_str.startswith("data: "):
+                data_str = line_str[6:]
+                if data_str.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    token = delta.get("content", "")
+                    if token:
+                        contenido += token
+                except json.JSONDecodeError:
+                    continue
+
+        if not contenido:
+            # Fallback sin streaming
+            r2 = requests.post(GEMMA_URL, json={
+                "messages": mensajes,
+                "max_tokens": 500,
+                "temperature": 0.7,
+            }, timeout=60)
+            data = r2.json()
+            contenido = data["choices"][0]["message"]["content"].strip()
 
         historial.append({"role": "assistant", "content": contenido})
-
-        # Parsear JSON de Lola
         return parsear_respuesta(contenido)
 
     except requests.exceptions.ConnectionError:
-        return {"respuesta": "Disculpe Ingeniero, no me conecto con mi cerebro. ¿Está corriendo Gemma 4?", "acciones": []}
+        return {"respuesta": "Disculpe Ingeniero, Gemma 4 no responde.", "acciones": []}
     except requests.exceptions.Timeout:
-        return {"respuesta": "Disculpe Ingeniero, tardé demasiado en pensar. Intente de nuevo.", "acciones": []}
+        return {"respuesta": "Tardé mucho, Ingeniero. Intente de nuevo.", "acciones": []}
     except Exception as e:
-        return {"respuesta": f"Hubo un error, Ingeniero. {str(e)[:100]}", "acciones": []}
+        return {"respuesta": f"Error, Ingeniero. {str(e)[:80]}", "acciones": []}
 
 
 def parsear_respuesta(contenido):
