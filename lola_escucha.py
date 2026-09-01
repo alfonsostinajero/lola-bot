@@ -109,7 +109,7 @@ MAX_HISTORIAL = 20
 # ══════════════════════════════════════════════════════════════
 
 def respuesta_rapida(texto):
-    """Respuestas INSTANTÁNEAS sin pasar por Gemma 4. Ahorra 5-10 seg."""
+    """Respuestas INSTANTÁNEAS sin pasar por Gemma 4."""
     t = texto.lower().strip()
 
     # Hora
@@ -130,7 +130,8 @@ def respuesta_rapida(texto):
             info = json.loads(r.stdout)
             pct = info.get("percentage", "?")
             status = "cargando" if info.get("status") == "CHARGING" else "descargando"
-            return {"respuesta": f"Tiene {pct}% de batería, {status}, Ingeniero.", "acciones": []}
+            temp = info.get("temperature", "?")
+            return {"respuesta": f"Tiene {pct}% de batería, {status}, a {temp} grados, Ingeniero.", "acciones": []}
         except Exception:
             pass
 
@@ -150,7 +151,15 @@ def respuesta_rapida(texto):
         subprocess.run(["termux-wifi-enable", "false"], capture_output=True, timeout=3)
         return {"respuesta": "WiFi desactivado, Ingeniero.", "acciones": []}
 
-    # YouTube (directo sin Gemma)
+    # Bluetooth
+    if re.match(r'.*(prende|enciende|activa).*(bluetooth|blue).*', t):
+        subprocess.run(["termux-bluetooth-enable", "true"], capture_output=True, timeout=3)
+        return {"respuesta": "Bluetooth activado, Ingeniero.", "acciones": []}
+    if re.match(r'.*(apaga|desactiva).*(bluetooth|blue).*', t):
+        subprocess.run(["termux-bluetooth-enable", "false"], capture_output=True, timeout=3)
+        return {"respuesta": "Bluetooth desactivado, Ingeniero.", "acciones": []}
+
+    # YouTube
     match = re.match(r'.*(busca|pon|reproduce|abre).*(youtube|en youtube)\s*(.*)', t)
     if match:
         busqueda = match.group(3).strip()
@@ -160,12 +169,168 @@ def respuesta_rapida(texto):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return {"respuesta": f"Buscando {busqueda} en YouTube, Ingeniero.", "acciones": []}
 
-    # Vibrar
+    # ── NOTIFICACIONES ──
+    if re.match(r'.*(notificaciones|que hay nuevo|qué hay nuevo|avisos|mensajes nuevos).*', t):
+        try:
+            r = subprocess.run(["termux-notification-list"],
+                               capture_output=True, text=True, timeout=5)
+            notifs = json.loads(r.stdout)
+            if notifs:
+                resumen = []
+                for n in notifs[:5]:
+                    titulo = n.get("title", "")
+                    contenido = n.get("content", "")[:50]
+                    if titulo:
+                        resumen.append(f"{titulo}: {contenido}")
+                texto_notifs = ". ".join(resumen)
+                return {"respuesta": f"Tiene {len(notifs)} notificaciones, Ingeniero. Las más recientes: {texto_notifs}", "acciones": []}
+            return {"respuesta": "No tiene notificaciones pendientes, Ingeniero.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── CONTACTOS ──
+    if re.match(r'.*(mis contactos|lista de contactos|contactos).*', t):
+        try:
+            r = subprocess.run(["termux-contact-list"],
+                               capture_output=True, text=True, timeout=10)
+            contactos = json.loads(r.stdout)
+            nombres = [c.get("name", "") for c in contactos[:10]]
+            return {"respuesta": f"Tiene {len(contactos)} contactos. Algunos: {', '.join(nombres)}.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── SMS (leer últimos) ──
+    if re.match(r'.*(mensajes|sms|lee.*mensaje|último mensaje|ultimo mensaje).*', t):
+        try:
+            r = subprocess.run(["termux-sms-list", "-l", "5"],
+                               capture_output=True, text=True, timeout=5)
+            msgs = json.loads(r.stdout)
+            if msgs:
+                resumen = []
+                for m in msgs[:3]:
+                    sender = m.get("number", "desconocido")
+                    body = m.get("body", "")[:60]
+                    resumen.append(f"De {sender}: {body}")
+                return {"respuesta": f"Últimos mensajes: {'. '.join(resumen)}", "acciones": []}
+            return {"respuesta": "No tiene mensajes recientes, Ingeniero.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── SCREENSHOT ──
+    if re.match(r'.*(screenshot|captura|pantalla.*captura|foto.*pantalla).*', t):
+        try:
+            ruta = os.path.expanduser("~/storage/dcim/screenshot_lola.png")
+            subprocess.run(["termux-screenshot", ruta], capture_output=True, timeout=5)
+            return {"respuesta": f"Captura de pantalla guardada, Ingeniero.", "acciones": []}
+        except Exception:
+            return {"respuesta": "No pude tomar la captura, Ingeniero. Necesito permiso de pantalla.", "acciones": []}
+
+    # ── TOMAR FOTO ──
+    if re.match(r'.*(toma.*foto|saca.*foto|fotografía|foto).*', t):
+        try:
+            ruta = os.path.expanduser("~/storage/dcim/foto_lola.jpg")
+            subprocess.run(["termux-camera-photo", ruta], capture_output=True, timeout=10)
+            return {"respuesta": "Foto tomada y guardada, Ingeniero.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── CLIPBOARD ──
+    if re.match(r'.*(qué copié|que copie|clipboard|portapapeles|qué tengo copiado).*', t):
+        try:
+            r = subprocess.run(["termux-clipboard-get"],
+                               capture_output=True, text=True, timeout=3)
+            clip = r.stdout.strip()[:200]
+            return {"respuesta": f"Tiene copiado: {clip}", "acciones": []}
+        except Exception:
+            pass
+
+    # ── UBICACIÓN ──
+    if re.match(r'.*(dónde estoy|donde estoy|ubicación|ubicacion|mi ubicación|gps).*', t):
+        try:
+            r = subprocess.run(["termux-location", "-p", "gps", "-r", "once"],
+                               capture_output=True, text=True, timeout=15)
+            loc = json.loads(r.stdout)
+            lat = loc.get("latitude", "?")
+            lon = loc.get("longitude", "?")
+            return {"respuesta": f"Su ubicación es latitud {lat}, longitud {lon}, Ingeniero. ¿Quiere que abra el mapa?", "acciones": []}
+        except Exception:
+            pass
+
+    # ── HISTORIAL DE LLAMADAS ──
+    if re.match(r'.*(llamadas|historial.*llamadas|quién.*llamó|quien.*llamo).*', t):
+        try:
+            r = subprocess.run(["termux-call-log", "-l", "5"],
+                               capture_output=True, text=True, timeout=5)
+            calls = json.loads(r.stdout)
+            if calls:
+                resumen = [f"{c.get('name', c.get('number', '?'))} ({c.get('type', '?')})" for c in calls[:5]]
+                return {"respuesta": f"Últimas llamadas: {', '.join(resumen)}.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── CAMBIAR WALLPAPER ──
+    if re.match(r'.*(wallpaper|fondo.*pantalla|cambiar.*fondo).*', t):
+        try:
+            subprocess.Popen(["termux-wallpaper", "-u", "https://picsum.photos/1080/1920"],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"respuesta": "Cambiando fondo de pantalla, Ingeniero.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── ALARMA ──
+    if re.match(r'.*(alarma|despiértame|despiertame|pon.*alarma).*', t):
+        # Extraer hora
+        hora_match = re.search(r'(\d{1,2})\s*(?::|y|con)?\s*(\d{2})?\s*(am|pm)?', t)
+        if hora_match:
+            h = hora_match.group(1)
+            m = hora_match.group(2) or "00"
+            subprocess.Popen(
+                ["am", "start", "-a", "android.intent.action.SET_ALARM",
+                 "--ei", "android.intent.extra.alarm.HOUR", h,
+                 "--ei", "android.intent.extra.alarm.MINUTES", m],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"respuesta": f"Alarma puesta a las {h}:{m}, Ingeniero.", "acciones": []}
+
+    # ── BRILLO ──
+    if re.match(r'.*(brillo.*máximo|brillo.*maximo|más brillo|mas brillo).*', t):
+        subprocess.run(["termux-brightness", "255"], capture_output=True, timeout=3)
+        return {"respuesta": "Brillo al máximo, Ingeniero.", "acciones": []}
+    if re.match(r'.*(brillo.*mínimo|brillo.*minimo|menos brillo|baja.*brillo).*', t):
+        subprocess.run(["termux-brightness", "30"], capture_output=True, timeout=3)
+        return {"respuesta": "Brillo al mínimo, Ingeniero.", "acciones": []}
+
+    # ── VOLUMEN ──
+    if re.match(r'.*(volumen.*máximo|volumen.*maximo|más volumen|mas volumen|sube.*volumen).*', t):
+        subprocess.run(["termux-volume", "music", "15"], capture_output=True, timeout=3)
+        return {"respuesta": "Volumen al máximo, Ingeniero.", "acciones": []}
+    if re.match(r'.*(volumen.*mínimo|volumen.*minimo|baja.*volumen|menos volumen|silencio).*', t):
+        subprocess.run(["termux-volume", "music", "0"], capture_output=True, timeout=3)
+        return {"respuesta": "Volumen al mínimo, Ingeniero.", "acciones": []}
+
+    # ── VIBRAR ──
     if "vibra" in t:
         subprocess.run(["termux-vibrate", "-d", "500"], capture_output=True, timeout=3)
         return {"respuesta": "Listo, Ingeniero.", "acciones": []}
 
-    return None  # No es respuesta rápida, usar Gemma 4
+    # ── SENSORES ──
+    if re.match(r'.*(sensores|sensor|acelerómetro|giroscopio).*', t):
+        try:
+            r = subprocess.run(["termux-sensor", "-s", "all", "-n", "1"],
+                               capture_output=True, text=True, timeout=5)
+            return {"respuesta": f"Datos de sensores obtenidos, Ingeniero.", "acciones": []}
+        except Exception:
+            pass
+
+    # ── DESCARGAR ──
+    if re.match(r'.*(descarga|descargar|download).*', t):
+        url_match = re.search(r'(https?://\S+)', t)
+        if url_match:
+            url = url_match.group(1)
+            subprocess.Popen(["termux-download", url],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"respuesta": "Descargando, Ingeniero.", "acciones": []}
+
+    return None  # No es respuesta rápida → Gemma 4
 
 
 def escuchar():
