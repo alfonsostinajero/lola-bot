@@ -350,7 +350,7 @@ def escuchar():
 
 
 def pensar(texto):
-    """Envía a Gemma 4 con STREAMING — Lola habla mientras Gemma piensa."""
+    """Envía a Gemma 4 — siempre devuelve respuesta limpia."""
     global historial
 
     historial.append({"role": "user", "content": texto})
@@ -359,70 +359,86 @@ def pensar(texto):
     mensajes += historial[-MAX_HISTORIAL:]
 
     try:
-        # Streaming: recibir tokens conforme se generan
+        # Intentar sin streaming (más confiable)
         r = requests.post(GEMMA_URL, json={
             "messages": mensajes,
             "max_tokens": 500,
             "temperature": 0.7,
-            "stream": True,  # ← STREAMING para velocidad
-        }, timeout=60, stream=True)
+        }, timeout=60)
 
+        data = r.json()
+
+        # Extraer contenido de la respuesta de la API
         contenido = ""
-        for line in r.iter_lines():
-            if not line:
-                continue
-            line_str = line.decode("utf-8")
-            if line_str.startswith("data: "):
-                data_str = line_str[6:]
-                if data_str.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    token = delta.get("content", "")
-                    if token:
-                        contenido += token
-                except json.JSONDecodeError:
-                    continue
+        if "choices" in data and len(data["choices"]) > 0:
+            contenido = data["choices"][0].get("message", {}).get("content", "")
+        elif "content" in data:
+            contenido = data["content"]
+
+        contenido = contenido.strip()
 
         if not contenido:
-            # Fallback sin streaming
-            r2 = requests.post(GEMMA_URL, json={
-                "messages": mensajes,
-                "max_tokens": 500,
-                "temperature": 0.7,
-            }, timeout=60)
-            data = r2.json()
-            contenido = data["choices"][0]["message"]["content"].strip()
+            return {"respuesta": "Disculpe, no le entendí, Ingeniero.", "acciones": []}
 
         historial.append({"role": "assistant", "content": contenido})
         return parsear_respuesta(contenido)
 
     except requests.exceptions.ConnectionError:
-        return {"respuesta": "Disculpe Ingeniero, Gemma 4 no responde.", "acciones": []}
+        return {"respuesta": "Gemma 4 no responde. ¿Está corriendo el servidor?", "acciones": []}
     except requests.exceptions.Timeout:
         return {"respuesta": "Tardé mucho, Ingeniero. Intente de nuevo.", "acciones": []}
     except Exception as e:
-        return {"respuesta": f"Error, Ingeniero. {str(e)[:80]}", "acciones": []}
+        return {"respuesta": f"Error, Ingeniero.", "acciones": []}
 
 
 def parsear_respuesta(contenido):
-    """Extrae respuesta_usuario y acciones del JSON de Gemma."""
-    # Intentar parsear como JSON
+    """Extrae respuesta_usuario del JSON de Gemma. NUNCA muestra JSON crudo."""
+    # Intentar extraer JSON
     try:
-        # Buscar JSON en el contenido
+        # Buscar el JSON más grande en el contenido
         match = re.search(r'\{.*\}', contenido, re.DOTALL)
         if match:
             j = json.loads(match.group())
-            return {
-                "respuesta": j.get("respuesta_usuario", contenido)[:500],
-                "acciones": j.get("acciones", []),
-            }
-    except (json.JSONDecodeError, TypeError):
+
+            # Extraer respuesta_usuario
+            respuesta = j.get("respuesta_usuario", "")
+            if not respuesta:
+                # Intentar otros campos
+                respuesta = j.get("mensaje", "")
+            if not respuesta:
+                # Buscar en acciones → RESPONDER
+                for acc in j.get("acciones", []):
+                    if acc.get("tipo") == "RESPONDER":
+                        respuesta = acc.get("parametros", {}).get("mensaje", "")
+                        break
+
+            acciones = j.get("acciones", [])
+
+            if respuesta:
+                # Limpiar: quitar JSON, quotes extras
+                respuesta = respuesta.strip().strip('"').strip("'")
+                return {"respuesta": respuesta[:500], "acciones": acciones}
+
+    except (json.JSONDecodeError, TypeError, KeyError):
         pass
 
-    # Si no es JSON, usar el texto directo
-    return {"respuesta": contenido[:500], "acciones": []}
+    # Si no es JSON válido, usar el texto directo pero limpiar
+    # Quitar cualquier JSON parcial o basura
+    limpio = re.sub(r'\{.*', '', contenido).strip()
+    if not limpio or len(limpio) < 5:
+        limpio = contenido.strip()
+
+    # Quitar caracteres de JSON
+    limpio = limpio.replace('{', '').replace('}', '').replace('"', '').replace('\\n', ' ')
+    limpio = re.sub(r'pensamiento:.*?(,|$)', '', limpio, flags=re.I)
+    limpio = re.sub(r'acciones:.*?(,|$)', '', limpio, flags=re.I)
+    limpio = re.sub(r'respuesta_usuario:', '', limpio, flags=re.I)
+    limpio = limpio.strip().strip(',').strip()
+
+    if len(limpio) < 3:
+        limpio = "Disculpe, Ingeniero. ¿Puede repetir?"
+
+    return {"respuesta": limpio[:500], "acciones": []}
 
 
 def ejecutar_acciones(acciones):
