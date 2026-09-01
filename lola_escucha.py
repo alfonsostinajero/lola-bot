@@ -108,6 +108,66 @@ MAX_HISTORIAL = 20
 # FUNCIONES PRINCIPALES
 # ══════════════════════════════════════════════════════════════
 
+def respuesta_rapida(texto):
+    """Respuestas INSTANTÁNEAS sin pasar por Gemma 4. Ahorra 5-10 seg."""
+    t = texto.lower().strip()
+
+    # Hora
+    if re.match(r'.*(qué hora|que hora|la hora|dime la hora).*', t):
+        ahora = datetime.datetime.now().strftime("%I:%M %p")
+        return {"respuesta": f"Son las {ahora}, Ingeniero.", "acciones": []}
+
+    # Fecha
+    if re.match(r'.*(qué día|que dia|qué fecha|que fecha|día es hoy).*', t):
+        hoy = datetime.datetime.now().strftime("%A %d de %B de %Y")
+        return {"respuesta": f"Hoy es {hoy}, Ingeniero.", "acciones": []}
+
+    # Batería
+    if re.match(r'.*(batería|bateria|cuánta pila|cuanta pila|carga).*', t):
+        try:
+            r = subprocess.run(["termux-battery-status"],
+                               capture_output=True, text=True, timeout=5)
+            info = json.loads(r.stdout)
+            pct = info.get("percentage", "?")
+            status = "cargando" if info.get("status") == "CHARGING" else "descargando"
+            return {"respuesta": f"Tiene {pct}% de batería, {status}, Ingeniero.", "acciones": []}
+        except Exception:
+            pass
+
+    # Linterna
+    if re.match(r'.*(prende|enciende|activa).*(linterna|flash|luz).*', t):
+        subprocess.run(["termux-torch", "on"], capture_output=True, timeout=3)
+        return {"respuesta": "Linterna encendida, Ingeniero.", "acciones": []}
+    if re.match(r'.*(apaga|desactiva).*(linterna|flash|luz).*', t):
+        subprocess.run(["termux-torch", "off"], capture_output=True, timeout=3)
+        return {"respuesta": "Linterna apagada, Ingeniero.", "acciones": []}
+
+    # WiFi
+    if re.match(r'.*(prende|enciende|activa).*(wifi|wi-fi).*', t):
+        subprocess.run(["termux-wifi-enable", "true"], capture_output=True, timeout=3)
+        return {"respuesta": "WiFi activado, Ingeniero.", "acciones": []}
+    if re.match(r'.*(apaga|desactiva).*(wifi|wi-fi).*', t):
+        subprocess.run(["termux-wifi-enable", "false"], capture_output=True, timeout=3)
+        return {"respuesta": "WiFi desactivado, Ingeniero.", "acciones": []}
+
+    # YouTube (directo sin Gemma)
+    match = re.match(r'.*(busca|pon|reproduce|abre).*(youtube|en youtube)\s*(.*)', t)
+    if match:
+        busqueda = match.group(3).strip()
+        if busqueda:
+            url = f"https://www.youtube.com/results?search_query={busqueda.replace(' ', '+')}"
+            subprocess.Popen(["termux-open-url", url],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"respuesta": f"Buscando {busqueda} en YouTube, Ingeniero.", "acciones": []}
+
+    # Vibrar
+    if "vibra" in t:
+        subprocess.run(["termux-vibrate", "-d", "500"], capture_output=True, timeout=3)
+        return {"respuesta": "Listo, Ingeniero.", "acciones": []}
+
+    return None  # No es respuesta rápida, usar Gemma 4
+
+
 def escuchar():
     """Escucha con Google Speech Recognition."""
     try:
@@ -439,7 +499,16 @@ def main():
 
             print(f"\r🗣️  Usted: {texto}")
 
-            # ── GEMMA 4 PIENSA ──
+            # ── RESPUESTA RÁPIDA (instantánea, sin Gemma) ──
+            rapida = respuesta_rapida(texto)
+            if rapida:
+                respuesta = rapida["respuesta"]
+                print(f"⚡ Lola: {respuesta}")
+                print("")
+                hablar(respuesta)
+                continue
+
+            # ── GEMMA 4 PIENSA (solo para cosas complejas) ──
             print("🧠 Pensando...", end="", flush=True)
             resultado = pensar(texto)
             print("\r              \r", end="", flush=True)
