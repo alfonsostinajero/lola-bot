@@ -258,9 +258,9 @@ def pensar(texto):
     try:
         r = requests.post(URL, json={
             "messages": HISTORIAL,
-            "max_tokens": 100,
-            "temperature": 0.3,
-        }, timeout=30)
+            "max_tokens": 500,
+            "temperature": 0.5,
+        }, timeout=120)
 
         data = r.json()
         resp = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()

@@ -29,7 +29,7 @@ cd ~/llama.cpp
     -m ~/.lola/models/gemma-4-e2b-it-Q4_K_M.gguf \
     --host 127.0.0.1 \
     --port 8080 \
-    -c 1024 \
+    -c 2048 \
     -t 4 \
     > ~/.lola/logs/llama.log 2>&1 &
 
