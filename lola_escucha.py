@@ -263,10 +263,17 @@ def pensar(texto):
         }, timeout=120)
 
         data = r.json()
-        resp = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        
+        if "error" in data:
+            return f"Error interno de Gemma: {data['error'].get('message', str(data['error']))}"
+
+        resp = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if resp is None:
+            resp = ""
+        resp = resp.strip()
 
         if not resp:
-            return "Claro, Ingeniero. ¿Me puede repetir eso?"
+            return f"Gemma no devolvió texto. Raw: {str(data)[:100]}"
 
         # Limpiar si Gemma devolvió JSON por error
         try:

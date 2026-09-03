@@ -11,7 +11,7 @@ cat > ~/.termux/boot/start-lola.sh << 'BOOT'
 #!/data/data/com.termux/files/usr/bin/bash
 termux-wake-lock
 sleep 10
-cd ~/llama.cpp && ./build/bin/llama-server -m ~/.lola/models/gemma-4-e2b-it-Q4_K_M.gguf --host 127.0.0.1 --port 8080 -c 1024 -t 4 > ~/.lola/logs/llama.log 2>&1 &
+cd ~/llama.cpp && ./build/bin/llama-server -m ~/.lola/models/gemma-4-e2b-it-Q4_K_M.gguf --host 127.0.0.1 --port 8080 -c 2048 -t 4 > ~/.lola/logs/llama.log 2>&1 &
 for i in $(seq 1 60); do curl -s http://127.0.0.1:8080/health > /dev/null 2>&1 && break; sleep 2; done
 cd ~/lola-bot && python lola_escucha.py >> ~/.lola/logs/lola.log 2>&1 &
 BOOT
